@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planista — PULSE</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .planner-shell { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1rem; }
+        @media (max-width: 992px) { .planner-shell { grid-template-columns: 1fr; } }
+        .job-tile {
+            border: 1px solid #d9e2ec; border-radius: 10px; background: #fff;
+            padding: .6rem; cursor: grab; transition: box-shadow .15s, transform .15s;
+        }
+        .job-tile:hover { box-shadow: 0 6px 18px rgba(18,48,74,.12); transform: translateY(-1px); }
+        .job-tile.selected { outline: 2px solid #0d6efd; }
+        .job-thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 6px; background: #eef3f8; }
+        .job-thumb-empty { display:flex; align-items:center; justify-content:center; color:#8aa0b5; }
+        .track {
+            min-height: 220px; border: 2px dashed #c5d3e0; border-radius: 12px;
+            background: linear-gradient(180deg, #f8fbff, #f3f7fb); padding: .75rem;
+        }
+        .track-title { font-weight: 700; letter-spacing: .02em; }
+        .queue-item, .draft-item {
+            border-radius: 8px; padding: .45rem .55rem; margin-bottom: .4rem; font-size: .86rem;
+        }
+        .queue-item { background: #e9eef4; color: #445566; }
+        .queue-item.in-progress { background: #ffe8cc; color: #7a4b00; }
+        .draft-item { background: #d9f2e6; color: #0f5132; display:flex; justify-content:space-between; gap:.5rem; align-items:center; }
+        .color-chip {
+            display:inline-block; font-size:.7rem; background:#eef2f7; border-radius:999px;
+            padding:.1rem .45rem; margin:.1rem .1rem 0 0;
+        }
+        .ingest-bar { background:#12304a; color:#fff; border-radius:12px; }
+        .similar-row { border-bottom:1px solid #edf1f5; padding:.45rem 0; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container-fluid py-3 px-3 px-lg-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h1 class="h3 mb-0"><i class="fas fa-clipboard-list"></i> Panel planisty</h1>
+            <div class="text-muted small">Katalog PDF · podobieństwo kolorów · tory D6/D8/D10 · publish (merge)</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="badge bg-primary">{{ user.username }} ({{ user.role }})</span>
+            {% if user.role in ['admin', 'manager'] %}
+            <a href="/dashboard" class="btn btn-outline-secondary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="/plany" class="btn btn-outline-secondary btn-sm"><i class="fas fa-calendar"></i> Plany</a>
+            {% endif %}
+            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+        </div>
+    </div>
+
+    {% if success %}
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        {{ success }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        {{ error }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <div class="ingest-bar p-3 mb-3">
+        <div class="row g-3 align-items-end">
+            <div class="col-lg-6">
+                <div class="small opacity-75 mb-1">Folder PDF (widoczny dla serwera PULSE)</div>
+                <form method="post" action="/planista/settings" class="d-flex gap-2 flex-wrap">
+                    <div class="input-group input-group-sm flex-grow-1" style="min-width:220px;">
+                        <input type="text" name="pdf_root" id="planistaPdfRoot" class="form-control"
+                               value="{{ settings.planner_pdf_root }}"
+                               placeholder="Wybierz folder…">
+                        <button type="button" class="btn btn-light" data-folder-picker="#planistaPdfRoot">
+                            <i class="fas fa-folder-open"></i>
+                        </button>
+                    </div>
+                    <input type="hidden" name="scan_interval_min" value="{{ settings.planner_scan_interval_min }}">
+                    <input type="hidden" name="watcher_enabled" value="{{ settings.planner_watcher_enabled }}">
+                    <button class="btn btn-sm btn-light" type="submit">Zapisz</button>
+                </form>
+                <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="d-flex gap-2 mt-2">
+                    <input type="file" name="files" class="form-control form-control-sm" accept=".pdf,application/pdf" multiple>
+                    <button class="btn btn-sm btn-success" type="submit" title="Wgraj PDF z tego komputera">
+                        <i class="fas fa-upload"></i>
+                    </button>
+                </form>
+            </div>
+            <div class="col-lg-3">
+                <div class="small opacity-75 mb-1">Ostatni skan</div>
+                <div class="fw-semibold">{{ settings.planner_last_scan_at or '—' }}</div>
+                <div class="small opacity-75">{{ settings.planner_last_scan_summary or '' }}</div>
+            </div>
+            <div class="col-lg-1">
+                <div class="small opacity-75 mb-1">Kolejka</div>
+                <div class="small">
+                    p{{ ingest_counts.get('pending', 0) }}/d{{ ingest_counts.get('done', 0) }}/e{{ ingest_counts.get('error', 0) }}
+                </div>
+            </div>
+            <div class="col-lg-2 text-lg-end">
+                <form method="post" action="/planista/scan" class="d-inline" id="planistaScanForm">
+                    <input type="hidden" name="folder" id="planistaScanFolder" value="{{ settings.planner_pdf_root }}">
+                    <button class="btn btn-warning btn-sm" type="submit">
+                        <i class="fas fa-sync"></i> Skanuj teraz
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="planner-shell">
+        <div>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h5 mb-0">Katalog jobów</h2>
+                <form method="get" action="/planista" class="d-flex gap-2">
+                    {% if selected %}<input type="hidden" name="selected" value="{{ selected }}">{% endif %}
+                    <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Szukaj LUB / zlecenie…">
+                    <button class="btn btn-sm btn-outline-primary" type="submit">Filtruj</button>
+                </form>
+            </div>
+            <div class="row g-2">
+                {% for job in jobs %}
+                {% set jid = job.id if job.id is defined else job['id'] %}
+                <div class="col-6 col-xl-4">
+                    <div class="job-tile {% if selected == jid %}selected{% endif %}"
+                         draggable="true"
+                         data-job-id="{{ jid }}"
+                         onclick="window.location='/planista?selected={{ jid }}{% if q %}&q={{ q|urlencode }}{% endif %}'">
+                        {% if job.thumbnail_path %}
+                        <img class="job-thumb mb-2" src="{{ job.thumbnail_path }}" alt="">
+                        {% else %}
+                        <div class="job-thumb job-thumb-empty mb-2"><i class="fas fa-file-pdf fa-2x"></i></div>
+                        {% endif %}
+                        <div class="fw-semibold text-truncate">{{ job.order_number or '—' }}</div>
+                        <div class="small text-muted text-truncate">{{ job.order_name or '' }}</div>
+                        <div class="small">{{ job.color_count or 0 }} kolorów · {{ job.extraction_status }}</div>
+                        <div class="mt-1">
+                            {% for c in colors.get(jid, [])[:6] %}
+                            <span class="color-chip">{{ c }}</span>
+                            {% endfor %}
+                        </div>
+                        <div class="mt-2 d-flex flex-wrap gap-1" onclick="event.stopPropagation()">
+                            {% for m in machines %}
+                            <form method="post" action="/planista/draft/add" class="d-inline">
+                                <input type="hidden" name="job_id" value="{{ jid }}">
+                                <input type="hidden" name="machine" value="{{ m }}">
+                                <button class="btn btn-outline-success btn-sm py-0 px-1" type="submit">+{{ m }}</button>
+                            </form>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="col-12">
+                    <div class="alert alert-secondary mb-0">
+                        Brak jobów w katalogu. Ustaw folder PDF i uruchom skan (albo użyj importu w panelu admina).
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if selected_job %}
+            <div class="card mt-3 shadow-sm">
+                <div class="card-header bg-white">
+                    <strong>Podobieństwo</strong> dla {{ selected_job.order_number }}
+                </div>
+                <div class="card-body py-2">
+                    {% if similar %}
+                        {% for s in similar %}
+                        <div class="similar-row d-flex justify-content-between gap-2">
+                            <div>
+                                <a href="/planista?selected={{ s.job.id }}">{{ s.job.order_number }}</a>
+                                <span class="text-muted small">{{ s.job.order_name or '' }}</span>
+                                {% if s.shared %}
+                                <div class="small text-muted">wspólne: {{ s.shared[:5]|join(', ') }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-success">{{ '%.0f'|format(s.score) }}%</span>
+                                <div class="small text-muted">J {{ '%.0f'|format(s.jaccard) }}%</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted small">Brak porównań (za mało jobów z kolorami).</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h5 mb-0">Tory planu <span class="text-muted small">(draft #{{ draft_id }})</span></h2>
+                <form method="post" action="/planista/publish">
+                    <input type="hidden" name="draft_id" value="{{ draft_id }}">
+                    <button class="btn btn-primary btn-sm" type="submit"
+                            onclick="return confirm('Opublikować draft (merge z istniejącymi planami)?')">
+                        <i class="fas fa-cloud-upload-alt"></i> Publikuj (scal)
+                    </button>
+                </form>
+            </div>
+            <div class="row g-2">
+                {% for m in machines %}
+                <div class="col-12">
+                    <div class="track" data-machine="{{ m }}"
+                         ondragover="event.preventDefault()"
+                         ondrop="dropJob(event, '{{ m }}')">
+                        <div class="track-title mb-2"><i class="fas fa-industry"></i> {{ m }}</div>
+                        <div class="small text-muted mb-1">Na maszynie (live)</div>
+                        {% for row in queues.get(m, []) %}
+                        <div class="queue-item {% if row.status == 'in_progress' %}in-progress{% endif %}">
+                            <strong>{{ row.order_number }}</strong>
+                            <span class="opacity-75">· {{ row.status }}</span>
+                            {% if row.order_name %}<div class="small">{{ row.order_name }}</div>{% endif %}
+                        </div>
+                        {% else %}
+                        <div class="small text-muted mb-2">Brak aktywnych zleceń</div>
+                        {% endfor %}
+                        <div class="small text-muted mt-2 mb-1">Draft (nowe do publish)</div>
+                        {% for item in draft_items.get(m, []) %}
+                        <div class="draft-item">
+                            <div>
+                                <strong>{{ item.order_number }}</strong>
+                                {% if item.order_name %}<div class="small">{{ item.order_name }}</div>{% endif %}
+                            </div>
+                            <form method="post" action="/planista/draft/remove">
+                                <input type="hidden" name="item_id" value="{{ item.id }}">
+                                <button class="btn btn-sm btn-outline-danger py-0" type="submit">&times;</button>
+                            </form>
+                        </div>
+                        {% else %}
+                        <div class="small text-muted">Upuść job lub użyj +{{ m }}</div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<form id="drop-add-form" method="post" action="/planista/draft/add" class="d-none">
+    <input type="hidden" name="job_id" id="drop-job-id">
+    <input type="hidden" name="machine" id="drop-machine">
+</form>
+
+<script>
+document.querySelectorAll('.job-tile[draggable=true]').forEach(el => {
+    el.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', el.dataset.jobId);
+    });
+});
+function dropJob(ev, machine) {
+    ev.preventDefault();
+    const jobId = ev.dataTransfer.getData('text/plain');
+    if (!jobId) return;
+    document.getElementById('drop-job-id').value = jobId;
+    document.getElementById('drop-machine').value = machine;
+    document.getElementById('drop-add-form').submit();
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% include '_folder_picker.html' %}
+<script>
+  const rootInput = document.getElementById('planistaPdfRoot');
+  const scanFolder = document.getElementById('planistaScanFolder');
+  if (rootInput && scanFolder) {
+    rootInput.addEventListener('change', () => { scanFolder.value = rootInput.value; });
+  }
+</script>
+</body>
+</html>

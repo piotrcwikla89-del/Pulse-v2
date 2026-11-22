@@ -1,0 +1,125 @@
+{# Modal przeglądarki folderów serwera. Wymaga: input target id w data-target-input #}
+<div class="modal fade" id="folderPickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-folder-open"></i> Wybierz folder PDF</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex gap-2 mb-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="fpUpBtn" title="W górę">
+            <i class="fas fa-level-up-alt"></i>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="fpHomeBtn" title="Dyski / skróty">
+            <i class="fas fa-hdd"></i>
+          </button>
+          <input type="text" class="form-control form-control-sm" id="fpPathInput" placeholder="Ścieżka…" readonly>
+        </div>
+        <div id="fpMessage" class="small text-muted mb-2"></div>
+        <div id="fpList" class="list-group" style="min-height:240px;"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <div class="small text-muted" id="fpPdfHint"></div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+          <button type="button" class="btn btn-primary" id="fpSelectBtn" disabled>
+            <i class="fas fa-check"></i> Wybierz ten folder
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const browseUrl = '/planista/api/browse';
+  let currentPath = '';
+  let parentPath = null;
+  let targetInput = null;
+  const modalEl = document.getElementById('folderPickerModal');
+  if (!modalEl) return;
+  const listEl = document.getElementById('fpList');
+  const pathEl = document.getElementById('fpPathInput');
+  const msgEl = document.getElementById('fpMessage');
+  const pdfHint = document.getElementById('fpPdfHint');
+  const selectBtn = document.getElementById('fpSelectBtn');
+  const upBtn = document.getElementById('fpUpBtn');
+  const homeBtn = document.getElementById('fpHomeBtn');
+
+  function openPicker(input) {
+    targetInput = input;
+    const start = (input && input.value) ? input.value : '';
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+    loadBrowse(start);
+  }
+
+  async function loadBrowse(path) {
+    listEl.innerHTML = '<div class="list-group-item text-muted">Ładowanie…</div>';
+    selectBtn.disabled = true;
+    try {
+      const url = browseUrl + '?path=' + encodeURIComponent(path || '');
+      const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      currentPath = data.path || '';
+      parentPath = data.parent;
+      pathEl.value = currentPath || '(dyski i skróty)';
+      msgEl.textContent = data.message || '';
+      msgEl.className = 'small mb-2 ' + (data.ok ? 'text-muted' : 'text-danger');
+      pdfHint.textContent = currentPath
+        ? ('PDF w tym folderze (poziom 1): ' + (data.pdf_count_here || 0))
+        : '';
+      selectBtn.disabled = !(data.ok && currentPath);
+      renderItems(data.items || []);
+    } catch (err) {
+      listEl.innerHTML = '<div class="list-group-item text-danger">Błąd przeglądania: ' + err + '</div>';
+      selectBtn.disabled = true;
+    }
+  }
+
+  function renderItems(items) {
+    if (!items.length) {
+      listEl.innerHTML = '<div class="list-group-item text-muted">Brak podfolderów</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    items.forEach(item => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+      const icon = item.kind === 'drive' ? 'fa-hdd' : (item.kind === 'shortcut' ? 'fa-star' : 'fa-folder');
+      const badge = (item.pdf_count != null && item.pdf_count > 0)
+        ? `<span class="badge bg-secondary">${item.pdf_count} PDF</span>`
+        : '';
+      btn.innerHTML = `<span><i class="fas ${icon} me-2 text-warning"></i>${item.name}</span>${badge}`;
+      btn.addEventListener('click', () => loadBrowse(item.path));
+      listEl.appendChild(btn);
+    });
+  }
+
+  upBtn.addEventListener('click', () => {
+    if (parentPath) loadBrowse(parentPath);
+    else loadBrowse('');
+  });
+  homeBtn.addEventListener('click', () => loadBrowse(''));
+  selectBtn.addEventListener('click', () => {
+    if (!targetInput || !currentPath) return;
+    targetInput.value = currentPath;
+    targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+    bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+  });
+
+  document.querySelectorAll('[data-folder-picker]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sel = btn.getAttribute('data-folder-picker');
+      const input = document.querySelector(sel);
+      if (input) openPicker(input);
+    });
+  });
+
+  window.openFolderPicker = openPicker;
+})();
+</script>

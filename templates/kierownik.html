@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Kierownika - System Drukarni</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+</head>
+<body class="bg-light">
+<div class="container mt-4 mb-5">
+    <div class="page-toolbar">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-user-tie"></i> Panel kierownika</h1>
+            <p class="mb-0">Nadzór nad drukiem i przewijarkami w jednym widoku operacyjnym.</p>
+        </div>
+        <div class="toolbar-actions">
+            <span class="btn btn-outline-secondary btn-sm disabled"><i class="fas fa-user"></i> {{ user.username }}</span>
+            {% if user.role in ['admin', 'manager'] %}
+            <a href="/select-przewijarka" class="btn btn-outline-info btn-sm"><i class="fas fa-wind"></i> Przewijarki</a>
+            {% endif %}
+            <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+        </div>
+    </div>
+
+    <section class="hero-panel mb-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+            <div>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <span class="status-pill">{{ active_count }}/{{ machine_total }} aktywnych stanowisk</span>
+                    <span class="status-pill">{{ print_reports_total }} raportów jakości dziś</span>
+                </div>
+                <h2 class="mb-2">Centrum zmianowe produkcji</h2>
+                <p class="mb-0">Drukarki i przewijarki raportują tutaj bezpośrednio do kierownika.</p>
+            </div>
+        </div>
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <small>Druk i produkcja dziś</small>
+                <strong>{{ production_total }} szt.</strong>
+            </div>
+            <div class="summary-card">
+                <small>Przewijanie OK dziś</small>
+                <strong>{{ winding_ok_meters|round(1) }} m</strong>
+            </div>
+            <div class="summary-card">
+                <small>Jakość kontroli zadruku</small>
+                <strong>{{ quality_score }}%</strong>
+            </div>
+            <div class="summary-card">
+                <small>Braki / odpady</small>
+                <strong>{{ production_nok }} szt. · {{ winding_nok_meters|round(1) }} m</strong>
+            </div>
+        </div>
+    </section>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-link"></i> Traceability testowy</h5>
+            <a href="/traceability" class="btn btn-light btn-sm"><i class="fas fa-search"></i> Otwórz</a>
+        </div>
+        <div class="card-body">
+            <p class="mb-0">Pierwsza wersja modułu umożliwia wyszukanie zlecenia po numerze, artwork lub LUB i pokazuje powiązane raporty, farby oraz historię zdarzeń.</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="fas fa-chart-line"></i> Dzienny live view: efektywność i scrap</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="small text-uppercase fw-bold mb-2">Efektywność dzienna (OK / wydano)</div>
+                    <div style="height: 260px;">
+                        <canvas id="efficiencyChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="small text-uppercase fw-bold mb-2">Poziom scrapu (NOK / wydano)</div>
+                    <div style="height: 260px;">
+                        <canvas id="scrapChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-industry"></i> Stan stanowisk: druk i przewijarki</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Stanowisko</th>
+                                    <th>Typ</th>
+                                    <th>Status</th>
+                                    <th>Aktywne zlecenie</th>
+                                    <th>Dzisiaj</th>
+                                    <th>Ostatni raport</th>
+                                    <th>Akcje</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in machine_rows %}
+                                <tr>
+                                    <td><strong>{{ row.machine }}</strong></td>
+                                    <td>
+                                        <span class="badge {% if row.machine_type == 'przewijarka' %}bg-info{% else %}bg-primary{% endif %}">
+                                            {{ row.machine_type }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if row.active_status == 'W toku' %}
+                                        <span class="badge bg-success">{{ row.active_status }}</span>
+                                        {% elif row.active_status == 'Oczekuje' %}
+                                        <span class="badge bg-warning text-dark">{{ row.active_status }}</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">{{ row.active_status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if row.active_plan %}
+                                        <strong>{{ row.active_plan.order_number }}</strong><br>
+                                        <small class="text-muted">{{ row.active_plan.order_name or 'bez nazwy' }}</small>
+                                        {% else %}
+                                        <small class="text-muted">Brak aktywnego zlecenia</small>
+                                        {% endif %}
+                                        {% if row.pending_count %}
+                                        <br><small class="text-muted">Zaplanowane: {{ row.pending_count }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td><strong>{{ row.today_output|round(1) }}</strong> {{ row.output_label }}</td>
+                                    <td>
+                                        {% if row.latest_report %}
+                                        <small>{{ row.latest_report.created_at|localdatetime }}</small>
+                                        {% else %}
+                                        <small class="text-muted">Brak raportu dziś</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if row.machine_type == 'przewijarka' %}
+                                        <a href="/przewijarka/{{ row.machine|lower }}/plany" class="btn btn-sm btn-outline-primary">Panel</a>
+                                        {% else %}
+                                        <a href="/maszyna/{{ row.machine|lower }}/plany" class="btn btn-sm btn-outline-primary">Panel</a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-file-alt"></i> Szybki dostęp</h5>
+                </div>
+                <div class="card-body d-grid gap-2">
+                    <a href="/kierownik/rejestr-raportow" class="btn btn-dark">
+                        <i class="fas fa-clipboard-list"></i> Rejestr raportów
+                        <small class="d-block fw-normal">zadruk, produkcja i przewijanie</small>
+                    </a>
+                    <a href="/kierownik/raport-zmiany" class="btn btn-outline-danger">
+                        <i class="fas fa-print"></i> Raport zbiorczy zmiany
+                    </a>
+                    <a href="/kierownik/raport-dziennie" class="btn btn-outline-primary">
+                        <i class="fas fa-file-pdf"></i> Raport dzienny
+                    </a>
+                    <a href="/kierownik/statystyki-zmian" class="btn btn-outline-info">
+                        <i class="fas fa-chart-line"></i> Statystyki zmian
+                    </a>
+                    <details class="mt-1">
+                        <summary class="btn btn-outline-secondary w-100 text-start">
+                            <i class="fas fa-ellipsis-h"></i> Pozostałe raporty
+                        </summary>
+                        <div class="d-grid gap-2 mt-2">
+                            <a href="/kierownik/dziennik-zmian" class="btn btn-outline-success btn-sm">
+                                <i class="fas fa-book"></i> Dziennik zmian
+                            </a>
+                            <a href="/kierownik/raport-jakosci" class="btn btn-outline-warning btn-sm">
+                                <i class="fas fa-star"></i> Raport jakości
+                            </a>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-binoculars"></i> Szybki odczyt dnia</h5>
+                </div>
+                <div class="card-body">
+                    <div class="surface-note mb-3">
+                        <strong>Druk</strong>
+                        <div class="small mt-1">OK: {{ production_ok }} szt. · NOK: {{ production_nok }} szt.</div>
+                    </div>
+                    <div class="surface-note">
+                        <strong>Przewijarki</strong>
+                        <div class="small mt-1">OK: {{ winding_ok_meters|round(1) }} m · NOK: {{ winding_nok_meters|round(1) }} m</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+    const efficiencyLabels = {{ production_machine_metrics | map(attribute='machine') | list | tojson }};
+    const efficiencyValues = {{ production_machine_metrics | map(attribute='ok_pct') | list | tojson }};
+    const scrapValues = {{ production_machine_metrics | map(attribute='scrap_pct') | list | tojson }};
+    const overallEfficiency = {{ overall_ok_pct }};
+    const overallScrap = {{ overall_scrap_pct }};
+
+    const efficiencyChart = new Chart(document.getElementById('efficiencyChart'), {
+        type: 'bar',
+        data: {
+            labels: efficiencyLabels,
+            datasets: [{
+                label: 'Maszyny',
+                data: efficiencyValues,
+                backgroundColor: 'rgba(14, 116, 144, 0.75)',
+                borderRadius: 8
+            }, {
+                label: 'Overall',
+                type: 'line',
+                data: Array(efficiencyLabels.length).fill(overallEfficiency),
+                borderColor: '#ff8a3d',
+                borderWidth: 2,
+                pointRadius: 0,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: { callback: value => value + '%' }
+                }
+            }
+        }
+    });
+
+    const scrapChart = new Chart(document.getElementById('scrapChart'), {
+        type: 'bar',
+        data: {
+            labels: efficiencyLabels,
+            datasets: [{
+                label: 'Maszyny',
+                data: scrapValues,
+                backgroundColor: 'rgba(217, 83, 79, 0.75)',
+                borderRadius: 8
+            }, {
+                label: 'Overall',
+                type: 'line',
+                data: Array(efficiencyLabels.length).fill(overallScrap),
+                borderColor: '#0f3f6f',
+                borderWidth: 2,
+                pointRadius: 0,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: { callback: value => value + '%' }
+                }
+            }
+        }
+    });
+</script>
+{% include '_notification_poll.html' %}
+</body>
+</html>

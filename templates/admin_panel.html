@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel administratora</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+</head>
+<body class="bg-light">
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="fas fa-cogs"></i> Panel administratora</h1>
+        <div>
+            <span class="me-3"><i class="fas fa-user"></i> {{ user.username }} ({{ user.role }})</span>
+            <a href="/magazyn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Powrót</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><i class="fas fa-clock"></i> Zarządzanie zmianami produkcyjnymi</div>
+        <div class="card-body">
+            <div class="table-responsive mb-3">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Nazwa zmiany</th>
+                            <th>Początek</th>
+                            <th>Koniec</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for shift in shifts %}
+                        <tr>
+                            <td>{{ shift.name }}</td>
+                            <td>{{ shift.start_time }}</td>
+                            <td>{{ shift.end_time }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small">Domyślne zmiany: dzień (6:00-18:00), noc (18:00-6:00)</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><i class="fas fa-user-plus"></i> Zarządzanie użytkownikami</div>
+        <div class="card-body">
+            {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+            {% if success %}
+            <div class="alert alert-success">{{ success }}</div>
+            {% endif %}
+            <form method="post" action="/admin/add_user" class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <input type="text" name="username" class="form-control" placeholder="Nazwa użytkownika" required>
+                </div>
+                <div class="col-md-3">
+                    <select name="role" class="form-select" required>
+                        <option value="drukarz">Drukarz</option>
+                        <option value="operator_przewijarki">Operator Przewijarki</option>
+                        <option value="operator_mieszalni">Operator Mieszalni</option>
+                        <option value="prepress">Prepress</option>
+                        <option value="planista">Planista</option>
+                        <option value="manager">Kierownik</option>
+                        <option value="admin">Administrator</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <input type="password" name="password" class="form-control" placeholder="Hasło" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="password" name="confirm_password" class="form-control" placeholder="Powtórz hasło" required>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-success"><i class="fas fa-save"></i> Dodaj użytkownika</button>
+                </div>
+            </form>
+            <p class="text-muted small">
+                <strong>Role dostępu:</strong><br>
+                • <strong>Drukarz</strong> - dostęp do maszyn drukarskich<br>
+                • <strong>Operator Mieszalni</strong> - dostęp do mieszania farb<br>
+                • <strong>Prepress</strong> - dostęp do przygotowania plików<br>
+                • <strong>Planista</strong> - katalog PDF, similarity, układ planów D6/D8/D10<br>
+                • <strong>Kierownik</strong> - dostęp do raportów i statystyk<br>
+                • <strong>Administrator</strong> - pełny dostęp do wszystkich funkcji
+            </p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white"><i class="fas fa-link"></i> Testowy moduł Traceability</div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Pierwszy prototyp śledzenia zleceń i komponentów. Działa dla admina i kierownika oraz będzie rozwijany do pełnego śladu produkcyjnego.</p>
+            <a href="/traceability" class="btn btn-outline-dark"><i class="fas fa-search"></i> Otwórz Traceability</a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><i class="fas fa-bell"></i> Powiadomienia w systemie</div>
+        <div class="card-body">
+            <p class="text-muted small">Wyłączone typy nie tworzą wpisów w skrzynce powiadomień (wezwania, raporty, zdarzenia produkcyjne). Dziennik <code>production_log</code> i tabela <code>events</code> nadal rejestrują zdarzenia.</p>
+            <form method="post" action="/admin/notification-settings">
+                <div class="row g-2">
+                    {% for np in notification_prefs %}
+                    <div class="col-md-6">
+                        <div class="form-check border rounded p-2 h-100">
+                            <input class="form-check-input" type="checkbox" name="{{ np.key }}" id="n-{{ np.key }}" {% if np.enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="n-{{ np.key }}">
+                                <code class="small">{{ np.key }}</code><br><span class="small">{{ np.label }}</span>
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn btn-primary mt-3"><i class="fas fa-save"></i> Zapisz ustawienia powiadomień</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><i class="fas fa-key"></i> Zmień hasło administratora</div>
+        <div class="card-body">
+            <form method="post" action="/admin/change_password" class="row g-3">
+                <div class="col-md-4">
+                    <input type="password" name="current_password" class="form-control" placeholder="Aktualne hasło" required>
+                </div>
+                <div class="col-md-4">
+                    <input type="password" name="new_password" class="form-control" placeholder="Nowe hasło" required>
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-warning"><i class="fas fa-save"></i> Zmień hasło</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-warning text-dark"><i class="fas fa-lock"></i> Hasło korekty magazynów</div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Hasło wymagane od <strong>operatora mieszalni</strong> i <strong>prepress</strong> przy edycji pozycji w magazynach. Aktualnie: <code>{{ edit_password_current }}</code></p>
+            <form method="post" action="/admin/set-edit-password" class="row g-3">
+                <div class="col-md-4">
+                    <input type="password" name="new_edit_password" class="form-control" placeholder="Nowe hasło korekty" required>
+                </div>
+                <div class="col-md-4">
+                    <input type="password" name="confirm_edit_password" class="form-control" placeholder="Powtórz hasło" required>
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-warning"><i class="fas fa-save"></i> Zmień hasło korekty</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white"><i class="fas fa-folder-open"></i> Planista — import PDF (testy)</div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Ręczny skan folderu sieciowego/lokalnego do katalogu planisty (ekstrakcja lokalna).
+                Docelowo działa też czujka/polling z pulpitu planisty.
+            </p>
+            <form method="post" action="/admin/planner-scan" class="row g-2 align-items-end" id="adminPlannerScanForm">
+                <div class="col-md-8">
+                    <label class="form-label small mb-1">Folder PDF na serwerze</label>
+                    <div class="input-group">
+                        <input type="text" name="folder" id="adminPlannerFolder" class="form-control"
+                               value="{{ planner_pdf_root or '' }}"
+                               placeholder="Wybierz folder przyciskiem Obok…" required>
+                        <button type="button" class="btn btn-outline-dark" data-folder-picker="#adminPlannerFolder">
+                            <i class="fas fa-folder-open"></i> Przeglądaj
+                        </button>
+                    </div>
+                    <div class="form-text">Przeglądarka widzi dyski i foldery widoczne dla procesu PULSE (nie Eksplorator Windows z przeglądarki).</div>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" name="save_as_root" value="1" id="saveAsRoot" checked>
+                        <label class="form-check-label" for="saveAsRoot">Zapisz jako root</label>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-warning w-100"><i class="fas fa-sync"></i> Skanuj raz</button>
+                </div>
+            </form>
+            <hr class="my-3">
+            <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="row g-2 align-items-end">
+                <div class="col-md-9">
+                    <label class="form-label small mb-1">Albo wgraj PDF z komputera (test)</label>
+                    <input type="file" name="files" class="form-control" accept=".pdf,application/pdf" multiple required>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-success w-100"><i class="fas fa-upload"></i> Wgraj i skanuj</button>
+                </div>
+            </form>
+            {% if planner_last_scan %}
+            <p class="small text-muted mt-2 mb-0">Ostatni skan: {{ planner_last_scan }} — {{ planner_last_summary }}</p>
+            {% endif %}
+            <a href="/planista" class="btn btn-outline-dark btn-sm mt-3"><i class="fas fa-clipboard-list"></i> Otwórz panel planisty</a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><i class="fas fa-file-import"></i> Import danych (CSV)</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <form action="/admin/import_farby" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+                        <input type="file" name="plik" class="form-control" accept=".csv" required>
+                        <button type="submit" class="btn btn-success">Import farb</button>
+                    </form>
+                </div>
+                <div class="col-md-4">
+                    <form action="/admin/import_polimery" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+                        <input type="file" name="plik" class="form-control" accept=".csv" required>
+                        <button type="submit" class="btn btn-success">Import polimerów</button>
+                    </form>
+                </div>
+                <div class="col-md-4">
+                    <form action="/admin/import_plany" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+                        <input type="file" name="plik" class="form-control" accept=".csv" required>
+                        <button type="submit" class="btn btn-success">Import planów</button>
+                    </form>
+                </div>
+            </div>
+            <p class="text-muted mt-3 small">Oczekiwane nagłówki CSV:<br>
+                farby: pantone,lub,polka,waga,data_produkcji<br>
+                polimery: lub,kolor,lokalizacja,data_waznosci,uwagi<br>
+                plany: machine,order_number,artwork_number,lub_number,order_name,laminate,meters,pieces,planned_date
+            </p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white"><i class="fas fa-list"></i> Lista użytkowników</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Nazwa użytkownika</th>
+                            <th>Rola</th>
+                            <th>Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td>{{ u.id }}</td>
+                            <td>{{ u.username }}</td>
+                            <td>
+                                {% if u.role == 'admin' %}
+                                    <span class="badge bg-danger"><i class="fas fa-user-shield"></i> Administrator</span>
+                                {% elif u.role == 'manager' %}
+                                    <span class="badge bg-warning"><i class="fas fa-user-tie"></i> Kierownik</span>
+                                {% elif u.role == 'planista' %}
+                                    <span class="badge bg-dark"><i class="fas fa-clipboard-list"></i> Planista</span>
+                                {% elif u.role == 'drukarz' %}
+                                    <span class="badge bg-primary"><i class="fas fa-print"></i> Drukarz</span>
+                                {% elif u.role == 'operator_mieszalni' %}
+                                    <span class="badge bg-success"><i class="fas fa-blender"></i> Operator Mieszalni</span>
+                                {% elif u.role == 'prepress' %}
+                                    <span class="badge bg-info"><i class="fas fa-images"></i> Prepress</span>
+                                {% elif u.role == 'operator_przewijarki' %}
+                                    <span class="badge bg-primary"><i class="fas fa-wind"></i> Operator Przewijarki</span>
+                                {% else %}
+                                    <span class="badge bg-secondary"><i class="fas fa-user"></i> {{ u.role }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if u.role != 'admin' %}
+                                <form method="post" action="/admin/delete_user" style="display:inline;">
+                                    <input type="hidden" name="user_id" value="{{ u.id }}">
+                                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Usunąć użytkownika {{ u.username }}?')"><i class="fas fa-trash"></i> Usuń</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% include '_folder_picker.html' %}
+{% include '_notification_poll.html' %}
+</body>
+</html>

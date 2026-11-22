@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+
+# Lokalna baza i backupy
+database.db
+*.db-journal
+*.db.bak
+main.py.bak
+
+# Dane lokalne planisty
+data/
+static/planner_thumbs/*
+!static/planner_thumbs/.gitkeep
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Test / smoke
+_t_*.py
+_smoke_*.py
