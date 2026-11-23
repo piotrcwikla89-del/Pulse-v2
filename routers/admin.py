@@ -241,15 +241,27 @@ def admin_planner_scan(
     admin=Depends(require_admin),
     conn=Depends(get_db),
 ):
+    from urllib.parse import quote
+
     cur = conn.cursor()
     folder = normalize_folder_path(folder)
     if not folder:
         return RedirectResponse("/admin?error=Podaj+folder+PDF", status_code=303)
-    if save_as_root in ("1", "on", "true"):
-        set_planner_setting(cur, "planner_pdf_root", folder)
-    summary = scan_pdf_folder(cur, folder, process=True, limit=80)
-    conn.commit()
-    from urllib.parse import quote
+    try:
+        if save_as_root in ("1", "on", "true"):
+            set_planner_setting(cur, "planner_pdf_root", folder)
+            conn.commit()
+        summary = scan_pdf_folder(cur, folder, process=True, limit=120)
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return RedirectResponse(
+            f"/admin?error={quote('Skan PDF nieudany: ' + str(exc)[:200])}",
+            status_code=303,
+        )
 
     if summary.missing_root:
         return RedirectResponse(f"/admin?error={quote(summary.as_text())}", status_code=303)

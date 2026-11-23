@@ -137,8 +137,15 @@ def get_db():
         raw_cur.execute("SET TIME ZONE 'UTC'")
         raw_cur.close()
         return _PgConnection(conn)
-    conn = sqlite3.connect(_sqlite_db_path(), check_same_thread=False)
+    # timeout: czekaj na lock (OCR/skan planisty potrafi trzymać zapis dłużej)
+    conn = sqlite3.connect(_sqlite_db_path(), check_same_thread=False, timeout=60.0)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=60000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.Error:
+        pass
     return conn
 
 
@@ -147,7 +154,13 @@ def migrate_schema_postgres(cur) -> None:
         "operacje": [("farba_id", "INTEGER")],
         "production_reports": [("plan_id", "INTEGER")],
         "print_control_reports": [("plan_id", "INTEGER")],
-        "production_plans": [("assortment_prep_status", "TEXT"), ("farby_prep_status", "TEXT"), ("polimery_prep_status", "TEXT")],
+        "production_plans": [
+            ("assortment_prep_status", "TEXT"),
+            ("farby_prep_status", "TEXT"),
+            ("polimery_prep_status", "TEXT"),
+            ("color_job_id", "INTEGER"),
+            ("sort_order", "INTEGER NOT NULL DEFAULT 0"),
+        ],
     }
     for table, columns in migrations.items():
         cur.execute(
@@ -602,15 +615,15 @@ def init_postgres_schema(cur) -> None:
 
 
 def seed_default_users_postgres(cur) -> None:
-    cur.execute("SELECT 1 FROM users WHERE username = %s", ("admin",))
-    if not cur.fetchone():
-        cur.execute(
-            "INSERT INTO users (username, role, password) VALUES (%s, %s, %s)",
-            ("admin", "admin", "admin123"),
-        )
-    cur.execute("SELECT 1 FROM users WHERE username = %s", ("drukarz1",))
-    if not cur.fetchone():
-        cur.execute(
-            "INSERT INTO users (username, role, password) VALUES (%s, %s, %s)",
-            ("drukarz1", "drukarz", "drukarz123"),
-        )
+    seeds = (
+        ("admin", "admin", "admin123"),
+        ("drukarz1", "drukarz", "drukarz123"),
+        ("planista1", "planista", "planista123"),
+    )
+    for username, role, password in seeds:
+        cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO users (username, role, password) VALUES (%s, %s, %s)",
+                (username, role, password),
+            )

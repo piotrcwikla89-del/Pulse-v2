@@ -43,6 +43,14 @@ def _safe_stat(path: Path) -> tuple[float | None, int | None]:
         return None, None
 
 
+def _commit(cur) -> None:
+    """Zwalnia lock SQLite między plikami OCR — inaczej równoległe requesty dostają database is locked."""
+
+    conn = getattr(cur, "connection", None)
+    if conn is not None:
+        conn.commit()
+
+
 def scan_pdf_folder(cur, root: str | None = None, *, process: bool = True, limit: int = 50) -> ScanSummary:
     """Rejestruje PDF z folderu w pdf_ingest_files; opcjonalnie od razu przetwarza kolejkę."""
 
@@ -100,6 +108,9 @@ def scan_pdf_folder(cur, root: str | None = None, *, process: bool = True, limit
                     (_now_iso(), row_id),
                 )
 
+    # Commit rejestracji plików zanim wejdziemy w długi OCR.
+    _commit(cur)
+
     if process:
         proc = process_ingest_queue(cur, limit=limit)
         summary.processed = proc["processed"]
@@ -107,6 +118,7 @@ def scan_pdf_folder(cur, root: str | None = None, *, process: bool = True, limit
 
     set_planner_setting(cur, "planner_last_scan_at", _now_iso())
     set_planner_setting(cur, "planner_last_scan_summary", summary.as_text())
+    _commit(cur)
     return summary
 
 
@@ -149,24 +161,36 @@ def process_ingest_queue(cur, *, limit: int = 50) -> dict[str, int]:
                 (str(exc)[:500], _now_iso(), ingest_id),
             )
             failed += 1
+        # Po każdym PDF — commit, żeby panel/notification poll nie wisiał na locku.
+        _commit(cur)
     return {"processed": processed, "failed": failed}
 
 
 def _extract_and_store(cur, path: Path) -> int:
-    from pdf_extractor_core.services.engine import ExtractorEngine
     from pdf_extractor_core.services.hashing import file_sha256
+
+    from services.planner.engine_factory import build_engine, default_process_options
 
     if not path.is_file():
         raise FileNotFoundError(f"Brak pliku: {path}")
 
     file_hash = file_sha256(path)
-    cur.execute("SELECT id FROM color_jobs WHERE source_hash=?", (file_hash,))
+    cur.execute(
+        "SELECT id, color_count FROM color_jobs WHERE source_hash=?",
+        (file_hash,),
+    )
     existing = cur.fetchone()
     if existing:
-        return existing["id"] if hasattr(existing, "keys") else existing[0]
+        existing_id = existing["id"] if hasattr(existing, "keys") else existing[0]
+        existing_count = existing["color_count"] if hasattr(existing, "keys") else existing[1]
+        if int(existing_count or 0) > 0:
+            return int(existing_id)
+        # Pusty wynik (np. wcześniejszy import bez OCR) — nadpisz.
+        cur.execute("DELETE FROM color_separations WHERE color_job_id=?", (existing_id,))
+        cur.execute("DELETE FROM color_jobs WHERE id=?", (existing_id,))
 
-    engine = ExtractorEngine()
-    result = engine.extract_separations(path)
+    engine = build_engine()
+    result = engine.extract_separations(path, default_process_options(force=True))
     seps = list(result.separations or ())
     order_number = result.order_number or result.filename_order_hint or path.stem
     order_name = result.job_name or path.stem
@@ -258,13 +282,12 @@ def _maybe_thumbnail(path: Path, file_hash: str) -> str | None:
         import fitz
     except ImportError:
         return None
-    from helpers import get_base_path
+    from services.runtime_env import planner_thumbs_dir
 
-    out_dir = Path(get_base_path()) / "static" / "planner_thumbs"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = planner_thumbs_dir()
     out_path = out_dir / f"{file_hash[:16]}.png"
     if out_path.exists():
-        return f"/static/planner_thumbs/{out_path.name}"
+        return f"/media/planner_thumbs/{out_path.name}"
     try:
         doc = fitz.open(path)
         if doc.page_count < 1:
@@ -274,6 +297,6 @@ def _maybe_thumbnail(path: Path, file_hash: str) -> str | None:
         pix = page.get_pixmap(matrix=fitz.Matrix(0.25, 0.25), alpha=False)
         pix.save(str(out_path))
         doc.close()
-        return f"/static/planner_thumbs/{out_path.name}"
+        return f"/media/planner_thumbs/{out_path.name}"
     except Exception:  # noqa: BLE001
         return None

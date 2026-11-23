@@ -464,7 +464,7 @@ def maszyna_plany(
         return HTMLResponse("Brak dostępu do tej maszyny dla obecnego drukarza", status_code=403)
     cur = conn.cursor()
     cur.execute(
-        "SELECT * FROM production_plans WHERE machine=? AND status='planned' ORDER BY id",
+        "SELECT * FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id",
         (machine.upper(),),
     )
     plan_rows = cur.fetchall()
@@ -1262,7 +1262,7 @@ def export_plany_csv(machine: str, user=Depends(require_auth), conn=Depends(get_
     cur = conn.cursor()
     cur.execute(
         """SELECT order_number, artwork_number, lub_number, order_name, laminate, meters, pieces
-           FROM production_plans WHERE machine=? AND status='planned' ORDER BY id""",
+           FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id""",
         (machine.upper(),),
     )
     plans = cur.fetchall()
@@ -1379,7 +1379,7 @@ def podglad_maszyna(machine: str, request: Request, user=Depends(require_auth), 
     cur = conn.cursor()
     cur.execute(
         """SELECT id, order_number, artwork_number, lub_number, order_name, laminate, meters, pieces, status
-           FROM production_plans WHERE machine=? AND status='planned' ORDER BY id""",
+           FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id""",
         (machine.upper(),),
     )
     plans = cur.fetchall()

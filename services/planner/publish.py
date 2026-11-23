@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from helpers import PRODUCTION_MACHINES
+from services.planner.queue_order import apply_draft_sort_to_production
 
 
 @dataclass
@@ -93,6 +94,12 @@ def publish_draft(cur, draft_id: int, *, published_by: str) -> PublishReport:
             report.conflicts.append(f"{order_number} już planned na {other_m} — bez auto-przeniesienia")
             continue
 
+        item_sort = item["sort_order"] if hasattr(item, "keys") else None
+        try:
+            item_sort = int(item_sort) if item_sort is not None else 0
+        except (TypeError, ValueError):
+            item_sort = 0
+
         if same_machine:
             plan_id = same_machine[0]["id"] if hasattr(same_machine[0], "keys") else same_machine[0][0]
             cur.execute(
@@ -101,10 +108,11 @@ def publish_draft(cur, draft_id: int, *, published_by: str) -> PublishReport:
                 SET artwork_number=COALESCE(?, artwork_number),
                     lub_number=COALESCE(?, lub_number),
                     order_name=COALESCE(?, order_name),
-                    color_job_id=COALESCE(?, color_job_id)
+                    color_job_id=COALESCE(?, color_job_id),
+                    sort_order=?
                 WHERE id=?
                 """,
-                (artwork, lub, order_name, color_job_id, plan_id),
+                (artwork, lub, order_name, color_job_id, item_sort, plan_id),
             )
             report.updated.append(f"{order_number}@{machine}")
             continue
@@ -114,12 +122,15 @@ def publish_draft(cur, draft_id: int, *, published_by: str) -> PublishReport:
             INSERT INTO production_plans
                 (machine, order_number, artwork_number, lub_number, order_name,
                  meters, pieces, status, assortment_prep_status, farby_prep_status,
-                 polimery_prep_status, color_job_id)
-            VALUES (?, ?, ?, ?, ?, 0, 0, 'planned', 'pending', 'pending', 'pending', ?)
+                 polimery_prep_status, color_job_id, sort_order)
+            VALUES (?, ?, ?, ?, ?, 0, 0, 'planned', 'pending', 'pending', 'pending', ?, ?)
             """,
-            (machine, order_number, artwork, lub, order_name, color_job_id),
+            (machine, order_number, artwork, lub, order_name, color_job_id, item_sort),
         )
         report.added.append(f"{order_number}@{machine}")
+
+    # Ujednolić kolejność na maszynie wg draftu planisty
+    apply_draft_sort_to_production(cur, draft_id)
 
     cur.execute(
         "UPDATE plan_drafts SET status='published', published_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",

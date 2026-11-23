@@ -1,10 +1,12 @@
-"""Bezpieczne listowanie folderów po stronie serwera (Windows / UNC)."""
+"""Bezpieczne listowanie folderów po stronie serwera (Windows / Linux / Render)."""
 
 from __future__ import annotations
 
 import os
 import string
 from pathlib import Path
+
+from services.runtime_env import is_render, path_allowed_for_browse, planner_browse_roots
 
 
 def normalize_folder_path(raw: str | None) -> str:
@@ -15,7 +17,7 @@ def normalize_folder_path(raw: str | None) -> str:
     path = str(raw).strip().strip('"').strip("'")
     if not path:
         return ""
-    # Zachowaj UNC \\serwer\share
+    # Zachowaj UNC \\serwer\share (głównie Windows/LAN)
     if path.startswith("\\\\") or path.startswith("//"):
         path = path.replace("/", "\\")
         return path.rstrip("\\") if len(path) > 3 else path
@@ -47,36 +49,33 @@ def parent_path(path: str) -> str | None:
     parent = p.parent
     if str(parent) == str(p):
         return None
-    # C:\ → None (wracamy do listy dysków)
     if len(str(p)) <= 3 and ":" in str(p):
         return None
-    return str(parent)
+    # Na Render nie wychodź poza whitelistę — parent poza rootami = None
+    parent_s = str(parent)
+    if is_render() and parent_s and not path_allowed_for_browse(parent_s):
+        return None
+    return parent_s
 
 
 def browse_directory(path: str | None = None) -> dict:
-    """Zwraca listę podfolderów. ``path`` puste = dyski / skróty."""
+    """Zwraca listę podfolderów. ``path`` puste = dyski / skróty / whitelist Render."""
 
     raw = normalize_folder_path(path)
     if not raw:
-        items = list_windows_drives()
-        home = str(Path.home())
-        desktop = str(Path.home() / "Desktop")
-        docs = str(Path.home() / "Documents")
-        for label, candidate in (
-            ("Folder użytkownika", home),
-            ("Pulpit", desktop),
-            ("Dokumenty", docs),
-        ):
+        items: list[dict] = []
+        for label, candidate in planner_browse_roots():
             if os.path.isdir(candidate):
-                items.insert(
-                    0,
+                items.append(
                     {
                         "name": label,
                         "path": candidate,
                         "kind": "shortcut",
                         "pdf_count": _count_pdfs(candidate, shallow=True),
-                    },
+                    }
                 )
+        if not is_render():
+            items.extend(list_windows_drives())
         return {
             "ok": True,
             "path": "",
@@ -84,7 +83,18 @@ def browse_directory(path: str | None = None) -> dict:
             "exists": True,
             "items": items,
             "pdf_count_here": 0,
-            "message": "Wybierz dysk lub skrót",
+            "message": "Wybierz folder (na Render: uploady / PLANNER_PDF_ROOT)",
+        }
+
+    if is_render() and not path_allowed_for_browse(raw):
+        return {
+            "ok": False,
+            "path": raw,
+            "parent": None,
+            "exists": False,
+            "items": [],
+            "pdf_count_here": 0,
+            "message": "Ścieżka poza dozwoloną whitelistą (ustaw PLANNER_PDF_ROOT lub użyj uploadu).",
         }
 
     if not os.path.isdir(raw):
@@ -98,7 +108,7 @@ def browse_directory(path: str | None = None) -> dict:
             "message": f"Folder nie istnieje lub jest niedostępny: {raw}",
         }
 
-    items: list[dict] = []
+    items = []
     try:
         with os.scandir(raw) as it:
             entries = sorted(it, key=lambda e: e.name.lower())
@@ -107,6 +117,8 @@ def browse_directory(path: str | None = None) -> dict:
                     if not entry.is_dir(follow_symlinks=False):
                         continue
                     if entry.name.startswith("."):
+                        continue
+                    if is_render() and not path_allowed_for_browse(entry.path):
                         continue
                     items.append(
                         {

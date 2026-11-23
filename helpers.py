@@ -3,6 +3,7 @@ Pomocnicze funkcje współdzielone przez wszystkie moduły aplikacji.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections import defaultdict
@@ -11,6 +12,7 @@ from urllib.parse import urlencode
 
 from fastapi.responses import HTMLResponse
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 from starlette.requests import Request
 
 from db_compat import is_postgres
@@ -55,6 +57,11 @@ def init_jinja_env() -> None:
             cache_size=0,
         )
         env.filters["localdatetime"] = format_local_datetime
+
+        def _tojson(value):
+            return Markup(json.dumps(value, ensure_ascii=False))
+
+        env.filters["tojson"] = _tojson
 
 
 def render_template(name: str, context: dict) -> HTMLResponse:

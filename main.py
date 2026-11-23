@@ -15,13 +15,34 @@ from starlette.middleware.sessions import SessionMiddleware
 from db_compat import get_db as _get_db_raw, is_postgres
 from helpers import get_base_path, seed_notification_settings_rows, seed_problem_categories
 from services.planner.schema import create_planner_tables
+from services.runtime_env import is_render, planner_thumbs_dir
 
 # ==================== APLIKACJA ====================
 app = FastAPI()
 
 _session_secret = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
-app.add_middleware(SessionMiddleware, secret_key=_session_secret)
+if is_render() and not os.environ.get("SESSION_SECRET"):
+    # Na Render bez stałego SECRET każda redeploy wylogowuje użytkowników.
+    import logging
+
+    logging.getLogger("pulse").warning(
+        "SESSION_SECRET nieustawiony — ustaw w Environment Render przed produkcją/demo."
+    )
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_session_secret,
+    https_only=is_render() or os.environ.get("FORCE_HTTPS", "").lower() in ("1", "true", "yes"),
+    same_site="lax",
+)
 app.mount("/static", StaticFiles(directory=os.path.join(get_base_path(), "static")), name="static")
+
+_thumbs_dir = planner_thumbs_dir()
+app.mount(
+    "/media/planner_thumbs",
+    StaticFiles(directory=str(_thumbs_dir)),
+    name="planner_thumbs",
+)
 
 # ==================== ROUTERY ====================
 from routers import auth, admin, magazyn, polimery, maszyny, kierownik, notifications, przewijarki, komponenty, traceability, planista  # noqa: E402
@@ -37,6 +58,17 @@ app.include_router(przewijarki.router)
 app.include_router(komponenty.router)
 app.include_router(traceability.router)
 app.include_router(planista.router)
+
+
+@app.get("/health")
+def health():
+    """Healthcheck dla Render (i monitoring)."""
+
+    return {
+        "status": "ok",
+        "postgres": is_postgres(),
+        "render": is_render(),
+    }
 
 # ==================== INICJALIZACJA BAZY DANYCH ====================
 
@@ -208,6 +240,8 @@ def init_db():
         seed_notification_settings_rows(cur)
         seed_problem_categories(cur)
         seed_default_users_postgres(cur)
+        create_planner_tables(cur, execute)
+        _apply_env_planner_settings(cur)
         execute(cur, "SELECT COUNT(*) FROM shifts")
         if cur.fetchone()[0] == 0:
             execute(cur, "INSERT INTO shifts (name, start_time, end_time) VALUES (?, ?, ?)", ("dzień", "06:00", "18:00"))
@@ -422,6 +456,7 @@ def init_db():
         execute(cur, "INSERT INTO users (username, role, password) VALUES (?, ?, ?)", ("planista1", "planista", "planista123"))
 
     create_planner_tables(cur, execute)
+    _apply_env_planner_settings(cur)
 
     execute(cur, "SELECT COUNT(*) FROM shifts")
     if cur.fetchone()[0] == 0:
@@ -430,6 +465,17 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+def _apply_env_planner_settings(cur) -> None:
+    """Ustawia planner_pdf_root z env (przydatne na Render / Docker)."""
+
+    root = (os.environ.get("PLANNER_PDF_ROOT") or "").strip()
+    if not root:
+        return
+    from services.planner.settings import set_planner_setting
+
+    set_planner_setting(cur, "planner_pdf_root", root)
 
 
 init_db()

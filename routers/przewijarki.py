@@ -93,7 +93,7 @@ def przewijarka_plany(
                 status_code=303,
             )
     cur.execute(
-        "SELECT * FROM production_plans WHERE machine=? AND status='planned' ORDER BY id",
+        "SELECT * FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id",
         (machine.upper(),),
     )
     plans = [dict(p) for p in cur.fetchall()]
