@@ -49,6 +49,20 @@ def admin_panel(
         {"key": k, "label": v, "enabled": settings_map.get(k, True)}
         for k, v in NOTIFICATION_EVENT_LABELS.items()
     ]
+    pdf_errors = []
+    try:
+        cur.execute(
+            """
+            SELECT file_name, last_error, processed_at
+            FROM pdf_ingest_files
+            WHERE status='error' AND last_error IS NOT NULL
+            ORDER BY id DESC
+            LIMIT 8
+            """
+        )
+        pdf_errors = [dict(r) for r in cur.fetchall()]
+    except Exception:  # noqa: BLE001
+        pdf_errors = []
     context = {
         "users": users,
         "shifts": shifts,
@@ -60,6 +74,7 @@ def admin_panel(
         "planner_last_summary": get_planner_setting(cur, "planner_last_scan_summary"),
         "lub_status": lub_import_status(cur),
         "pdf_ingest": ingest_status_counts(cur),
+        "pdf_errors": pdf_errors,
         "pdf_continue": str(pdf_continue or "") in ("1", "true", "yes"),
     }
     if error:
@@ -369,14 +384,17 @@ async def admin_upload_pdfs(
         return RedirectResponse("/admin?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
 
     cur = conn.cursor()
+    from services.planner.pdf_blobs import ensure_blob_columns
+
+    ensure_blob_columns(cur)
     set_planner_setting(cur, "planner_pdf_root", str(staging))
-    # Szybka rejestracja bez OCR w tym samym requeście (upload + OCR = 502).
+    # Szybka rejestracja + blob w DB (worker OCR na Render nie widzi dysku web).
     summary = scan_pdf_folder(cur, str(staging), process=False, limit=0, requeue_weak=False)
     conn.commit()
     pending = pending_ingest_count(cur)
     msg = f"Wgrano {saved} PDF. {summary.as_text()}"
     if pending:
-        msg += f" · OCR w kolejce workera ({pending})"
+        msg += f" · OCR w kolejce workera ({pending}; PDF w bazie)"
     return RedirectResponse(f"/admin?success={quote(msg)}", status_code=303)
 
 

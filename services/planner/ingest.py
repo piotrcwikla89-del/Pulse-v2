@@ -52,32 +52,45 @@ def _commit(cur) -> None:
 
 
 def requeue_weak_ingests(cur) -> int:
-    """Ponawia PDF ze statusem error oraz prace z 0 farbami / extraction_status=error."""
+    """Ponawia PDF ze statusem error / 0 kolorów — tylko gdy jest plik lub blob w DB."""
 
+    from services.planner.pdf_blobs import ensure_blob_columns, ingest_has_source
+
+    ensure_blob_columns(cur)
+    n = 0
     cur.execute(
         """
-        UPDATE pdf_ingest_files
-        SET status='pending', last_error=NULL, scanned_at=?
-        WHERE status='error'
-        """,
-        (_now_iso(),),
-    )
-    n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-    cur.execute(
-        """
-        SELECT DISTINCT i.id
+        SELECT i.id, i.file_path
         FROM pdf_ingest_files i
         LEFT JOIN color_jobs j ON j.id = i.color_job_id
-        WHERE i.status='done'
-          AND (
-            i.color_job_id IS NULL
-            OR COALESCE(j.color_count, 0) = 0
-            OR COALESCE(j.extraction_status, '') = 'error'
-          )
+        WHERE i.status='error'
+           OR (
+             i.status='done'
+             AND (
+               i.color_job_id IS NULL
+               OR COALESCE(j.color_count, 0) = 0
+               OR COALESCE(j.extraction_status, '') = 'error'
+             )
+           )
         """
     )
-    ids = [row["id"] if hasattr(row, "keys") else row[0] for row in cur.fetchall()]
-    for ingest_id in ids:
+    for row in cur.fetchall():
+        ingest_id = int(row["id"] if hasattr(row, "keys") else row[0])
+        file_path = str(row["file_path"] if hasattr(row, "keys") else row[1])
+        if not ingest_has_source(cur, ingest_id, file_path):
+            cur.execute(
+                """
+                UPDATE pdf_ingest_files
+                SET status='error', last_error=?, processed_at=?
+                WHERE id=?
+                """,
+                (
+                    "Brak PDF na dysku i w bazie (Render: web≠worker). Wgraj ponownie.",
+                    _now_iso(),
+                    ingest_id,
+                ),
+            )
+            continue
         cur.execute(
             """
             UPDATE pdf_ingest_files
@@ -132,6 +145,13 @@ def scan_pdf_folder(
                 """,
                 (file_path, path.name, mtime, size, _now_iso()),
             )
+            # Blob w DB — OCR worker na Render nie widzi dysku web.
+            try:
+                from services.planner.pdf_blobs import store_ingest_blob
+
+                store_ingest_blob(cur, file_path=file_path, content=path.read_bytes())
+            except Exception:  # noqa: BLE001
+                pass
             summary.new_pending += 1
             continue
 
@@ -148,6 +168,12 @@ def scan_pdf_folder(
                 """,
                 (mtime, size, _now_iso(), row_id),
             )
+            try:
+                from services.planner.pdf_blobs import store_ingest_blob_by_id
+
+                store_ingest_blob_by_id(cur, int(row_id), path.read_bytes())
+            except Exception:  # noqa: BLE001
+                pass
             summary.new_pending += 1
         else:
             summary.unchanged += 1
@@ -225,7 +251,7 @@ def process_ingest_queue(
 
     cur.execute(
         """
-        SELECT id, file_path FROM pdf_ingest_files
+        SELECT id, file_path, file_name FROM pdf_ingest_files
         WHERE status='pending'
         ORDER BY id
         LIMIT ?
@@ -237,14 +263,24 @@ def process_ingest_queue(
     failed = 0
     stopped_early = False
     started = time.monotonic()
+    errors_sample: list[str] = []
     for row in rows:
         if max_seconds is not None and (time.monotonic() - started) >= float(max_seconds):
             stopped_early = True
             break
         ingest_id = row["id"] if hasattr(row, "keys") else row[0]
         file_path = row["file_path"] if hasattr(row, "keys") else row[1]
+        file_name = row["file_name"] if hasattr(row, "keys") else (row[2] if len(row) > 2 else None)
         try:
-            job_id = _extract_and_store(cur, Path(file_path))
+            from services.planner.pdf_blobs import materialize_pdf
+
+            path = materialize_pdf(
+                cur,
+                ingest_id=int(ingest_id),
+                file_path=str(file_path),
+                file_name=str(file_name) if file_name else None,
+            )
+            job_id = _extract_and_store(cur, path, ingest_file_path=str(file_path))
             cur.execute(
                 """
                 UPDATE pdf_ingest_files
@@ -255,15 +291,18 @@ def process_ingest_queue(
             )
             processed += 1
         except Exception as exc:  # noqa: BLE001 — logujemy do wiersza ingestu
+            err = str(exc)[:500]
             cur.execute(
                 """
                 UPDATE pdf_ingest_files
                 SET status='error', last_error=?, processed_at=?
                 WHERE id=?
                 """,
-                (str(exc)[:500], _now_iso(), ingest_id),
+                (err, _now_iso(), ingest_id),
             )
             failed += 1
+            if len(errors_sample) < 5:
+                errors_sample.append(err)
         # Po każdym PDF — commit, żeby panel/notification poll nie wisiał na locku.
         _commit(cur)
     return {
@@ -271,13 +310,15 @@ def process_ingest_queue(
         "failed": failed,
         "pending": pending_ingest_count(cur),
         "stopped_early": int(stopped_early),
+        "errors_sample": errors_sample,
     }
 
 
-def _extract_and_store(cur, path: Path) -> int:
+def _extract_and_store(cur, path: Path, *, ingest_file_path: str | None = None) -> int:
     from pdf_extractor_core.services.hashing import file_sha256
 
     from services.planner.engine_factory import build_engine, default_process_options
+    from services.planner.pdf_blobs import store_thumbnail_blob
 
     if not path.is_file():
         raise FileNotFoundError(f"Brak pliku: {path}")
@@ -324,6 +365,8 @@ def _extract_and_store(cur, path: Path) -> int:
 
     thumb = _maybe_thumbnail(path, file_hash)
 
+    # source_path: oryginalna ścieżka z ingestu (web), nie tmp workera.
+    stored_source = ingest_file_path or str(path)
     cur.execute(
         """
         INSERT INTO color_jobs
@@ -336,7 +379,7 @@ def _extract_and_store(cur, path: Path) -> int:
             artwork,
             None,
             str(order_name),
-            str(path),
+            stored_source,
             file_hash,
             thumb,
             len(seps),
@@ -371,9 +414,18 @@ def _extract_and_store(cur, path: Path) -> int:
                 idx,
             ),
         )
+    if thumb and job_id:
+        try:
+            from services.runtime_env import planner_thumbs_dir
+            from services.planner.thumbnails import thumbnail_path_for
+
+            png = thumbnail_path_for(file_hash, planner_thumbs_dir())
+            store_thumbnail_blob(cur, job_id=int(job_id), png_path=png)
+        except Exception:  # noqa: BLE001
+            pass
     cur.execute(
         "UPDATE pdf_ingest_files SET file_hash=? WHERE file_path=?",
-        (file_hash, str(path.resolve())),
+        (file_hash, stored_source),
     )
     return int(job_id)
 
@@ -454,6 +506,18 @@ def refresh_existing_thumbnails(cur, *, limit: int = 80, force: bool = True) -> 
             "UPDATE color_jobs SET thumbnail_path=?, updated_at=? WHERE id=?",
             (url, _now_iso(), int(job_id)),
         )
+        try:
+            from services.planner.pdf_blobs import store_thumbnail_blob
+            from services.planner.thumbnails import thumbnail_path_for
+            from services.runtime_env import planner_thumbs_dir
+
+            store_thumbnail_blob(
+                cur,
+                job_id=int(job_id),
+                png_path=thumbnail_path_for(str(file_hash), planner_thumbs_dir()),
+            )
+        except Exception:  # noqa: BLE001
+            pass
         updated += 1
     _commit(cur)
     return {"updated": updated, "skipped": skipped, "failed": failed}

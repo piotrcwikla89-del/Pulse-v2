@@ -494,13 +494,16 @@ async def planista_upload_pdfs(
         target.write_bytes(content)
         saved += 1
     cur = conn.cursor()
+    from services.planner.pdf_blobs import ensure_blob_columns
+
+    ensure_blob_columns(cur)
     set_planner_setting(cur, "planner_pdf_root", str(staging))
     summary = scan_pdf_folder(cur, str(staging), process=False, limit=0)
     conn.commit()
     if saved == 0:
         return RedirectResponse("/planista?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
     return RedirectResponse(
-        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()} (OCR w workerze)')}",
+        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()} (OCR w workerze, PDF w bazie)')}",
         status_code=303,
     )
 

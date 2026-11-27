@@ -45,12 +45,26 @@ def run_once(*, limit: int = 3, max_seconds: float = 90.0) -> dict:
             if not acquired:
                 return {"skipped": True, "reason": "lock", **counts}
             result = {"processed": 0, "failed": 0}
+            from services.planner.ingest import requeue_weak_ingests
+            from services.planner.pdf_blobs import ensure_blob_columns
+
+            ensure_blob_columns(cur)
+            # Ponów error/słabe wyniki tylko gdy blob lub plik istnieje.
+            requeued = requeue_weak_ingests(cur)
+            if requeued:
+                conn.commit()
+                counts = ingest_status_counts(cur)
+                log.info("requeue %s ingestów", requeued)
             if counts.get("pending", 0) > 0:
                 result = process_ingest_queue(cur, limit=limit, max_seconds=max_seconds)
             backfill_all_artworks(cur)
             link_report = link_production_plans(cur)
             thumbs = refresh_existing_thumbnails(cur, limit=8, force=False)
             counts = ingest_status_counts(cur)
+            err_sample = result.get("errors_sample") or []
+            if result.get("failed"):
+                for msg in err_sample:
+                    log.error("OCR fail: %s", msg)
             set_planner_setting(
                 cur,
                 "planner_last_scan_summary",
@@ -60,6 +74,7 @@ def run_once(*, limit: int = 3, max_seconds: float = 90.0) -> dict:
                     f" · done={counts.get('done', 0)}"
                     f" · thumbs+={thumbs.get('updated', 0)}"
                     f" · link+={link_report.get('linked', 0)}"
+                    + (f" · err0={err_sample[0][:120]}" if err_sample else "")
                 ),
             )
             conn.commit()
@@ -69,6 +84,7 @@ def run_once(*, limit: int = 3, max_seconds: float = 90.0) -> dict:
                 "failed": result["failed"],
                 "thumbs": thumbs.get("updated", 0),
                 "linked": link_report.get("linked", 0),
+                "errors_sample": err_sample,
                 **counts,
             }
     finally:

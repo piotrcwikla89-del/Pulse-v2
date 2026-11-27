@@ -37,17 +37,47 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=os.path.join(get_base_path(), "static")), name="static")
 
-# Miniatury: tylko serwowanie gotowych plików. Regeneracja PDF = ocr_worker, nie HTTP.
+# Miniatury: plik lokalny albo blob z DB (OCR worker zapisuje do Postgres — web nie widzi jego /tmp).
 @app.get("/media/planner_thumbs/{filename:path}")
 def serve_planner_thumb(filename: str):
     from fastapi.responses import FileResponse, Response
 
-    from services.planner.thumb_serve import find_thumb_file
+    from services.planner.thumb_serve import find_thumb_file, hash_prefix_from_filename
 
     name = filename.replace("\\", "/").split("/")[-1]
     path = find_thumb_file(name)
     if path is not None:
         return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+    prefix = hash_prefix_from_filename(name)
+    if prefix:
+        try:
+            from db_compat import get_db
+            from services.planner.pdf_blobs import load_thumbnail_blob
+            from services.runtime_env import planner_thumbs_dir
+
+            conn = get_db()
+            try:
+                cur = conn.cursor()
+                found = load_thumbnail_blob(cur, file_hash_prefix=prefix)
+            finally:
+                conn.close()
+            if found:
+                blob, _ = found
+                # Cache lokalnie pod oczekiwaną nazwą — kolejne requesty bez DB.
+                out = planner_thumbs_dir() / name
+                try:
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_bytes(blob)
+                    return FileResponse(
+                        out,
+                        media_type="image/png",
+                        headers={"Cache-Control": "private, max-age=86400"},
+                    )
+                except OSError:
+                    return Response(content=blob, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+        except Exception:  # noqa: BLE001
+            pass
     return Response(status_code=404)
 
 

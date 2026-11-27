@@ -24,6 +24,7 @@ def create_planner_tables(cur, execute) -> None:
             status TEXT NOT NULL DEFAULT 'pending',
             last_error TEXT,
             color_job_id INTEGER,
+            file_blob {"BYTEA" if is_postgres() else "BLOB"},
             scanned_at TIMESTAMP,
             processed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -42,6 +43,7 @@ def create_planner_tables(cur, execute) -> None:
             source_path TEXT,
             source_hash TEXT,
             thumbnail_path TEXT,
+            thumbnail_blob {"BYTEA" if is_postgres() else "BLOB"},
             color_count INTEGER DEFAULT 0,
             extraction_status TEXT DEFAULT 'ok',
             extraction_method TEXT,
@@ -125,6 +127,9 @@ def create_planner_tables(cur, execute) -> None:
 
     ensure_lub_schema(cur, execute)
     ensure_planner_settings(cur, execute)
+    from services.planner.pdf_blobs import ensure_blob_columns
+
+    ensure_blob_columns(cur)
 
 
 def _ensure_production_plans_color_job_id(cur, execute) -> None:

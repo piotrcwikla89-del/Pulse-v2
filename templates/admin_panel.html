@@ -171,6 +171,16 @@
                 error <strong id="pdfError">{{ pdf_ingest.error if pdf_ingest else 0 }}</strong>
                 <span id="pdfBatchMsg" class="ms-2 text-muted"></span>
             </div>
+            {% if pdf_errors %}
+            <div class="alert alert-warning small py-2">
+                <strong>Ostatnie błędy OCR</strong> (często: brak pliku na workerze — wgraj PDF ponownie po tej poprawce):
+                <ul class="mb-0 mt-1">
+                    {% for e in pdf_errors %}
+                    <li><code>{{ e.file_name }}</code> — {{ e.last_error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
             <form method="post" action="/admin/planner-scan" class="row g-2 align-items-end" id="adminPlannerScanForm">
                 <div class="col-md-8">
                     <label class="form-label small mb-1">Folder PDF na serwerze</label>
