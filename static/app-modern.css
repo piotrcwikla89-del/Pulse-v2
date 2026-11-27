@@ -556,6 +556,143 @@ textarea.form-control {
     background: linear-gradient(135deg, rgba(15, 63, 111, 0.06), rgba(14, 116, 144, 0.10), rgba(21, 164, 111, 0.08));
 }
 
+/* —— Kolejki planów (maszyna / przewijarka): równo, bez „pływania” —— */
+body.plan-queue-page .card:hover {
+    transform: none;
+}
+
+body.plan-queue-page .card {
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(15, 63, 111, 0.06);
+}
+
+.plan-queue-sheet {
+    --plan-border: #c8d4e2;
+    --plan-head: #e8eef6;
+    margin: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.84rem;
+    width: 100%;
+}
+
+.plan-queue-sheet thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--plan-head) !important;
+    color: var(--app-primary-strong);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    vertical-align: middle;
+    border-bottom: 2px solid #9eb0c4 !important;
+    padding: 0.65rem 0.7rem;
+}
+
+.plan-queue-sheet tbody td {
+    vertical-align: middle !important;
+    border-bottom: 1px solid var(--plan-border) !important;
+    border-top: none !important;
+    padding: 0.55rem 0.7rem;
+    color: var(--app-text);
+    background-clip: padding-box;
+}
+
+.plan-queue-sheet tbody tr.plan-row-0 > td { background-color: #ffffff; }
+.plan-queue-sheet tbody tr.plan-row-1 > td { background-color: #f0f5fb; }
+.plan-queue-sheet tbody tr.plan-row-2 > td { background-color: #f7faf3; }
+.plan-queue-sheet tbody tr.plan-row-3 > td { background-color: #f8f3ef; }
+
+.plan-queue-sheet tbody tr.plan-row:hover > td {
+    background-color: #e4eef9 !important;
+}
+
+.plan-queue-sheet .cell-order {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.plan-queue-sheet .cell-artwork {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.plan-queue-sheet .cell-desc {
+    max-width: 16rem;
+    white-space: normal;
+    line-height: 1.25;
+}
+
+.plan-queue-sheet .cell-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.plan-queue-sheet .cell-lub {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.plan-actions-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2rem;
+}
+
+.plan-actions-row .form-select,
+.plan-actions-row .btn {
+    height: 1.9rem;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 0.78rem;
+    line-height: 1.9rem;
+}
+
+.plan-actions-row .form-select {
+    width: auto;
+    min-width: 3.6rem;
+    padding-left: 0.4rem;
+    padding-right: 1.4rem;
+}
+
+.plan-actions-row form {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+}
+
+.plan-queue-wrap {
+    max-height: min(72vh, 820px);
+    overflow: auto;
+    border-top: 1px solid var(--plan-border, #c8d4e2);
+}
+
+.plan-pos-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.55rem;
+    height: 1.55rem;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(15, 63, 111, 0.1);
+    color: var(--app-primary-strong);
+}
+
+.plan-detail-row > td {
+    background: #eef2f7 !important;
+    border-bottom: 2px solid #9eb0c4 !important;
+    padding: 0 !important;
+}
+
 .dashboard-card,
 .machine-card {
     border-radius: 24px !important;
