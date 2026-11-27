@@ -1,8 +1,12 @@
-"""Odczyt pierwszej strony. OCR startuje tylko wtedy, gdy tekst nie jest SUCCESS."""
+"""Odczyt strony z legendą farb. OCR startuje tylko gdy tekst nie jest SUCCESS."""
 
 from pathlib import Path
 
-from pdf_extractor_core.extraction.document_source import PdfOpenError, read_document
+from pdf_extractor_core.extraction.document_source import (
+    PdfOpenError,
+    iter_legend_page_candidates,
+    read_document,
+)
 from pdf_extractor_core.extraction.profiles.flexo_spec import PROFILE_ID, parse_flexo_legend, text_is_thin
 from pdf_extractor_core.models.config import EngineConfig, ProcessOptions
 from pdf_extractor_core.models.enums import ExtractionMethod, ValidationStatus
@@ -22,42 +26,84 @@ def extract_document(
     options: ProcessOptions | None = None,
     config: EngineConfig | None = None,
 ) -> ExtractionResult:
-    """Czyta PDF. Kompletna legenda tekstowa nie uruchamia OCR."""
+    """Czyta PDF. Próbuje stron z najsilniejszą legendą (nie tylko strona 0)."""
 
     options = options if options is not None else ProcessOptions()
     config = config if config is not None else EngineConfig()
+    hint, revision = filename_order_hint(path.name)
+
     try:
-        document = read_document(path)
-    except PdfOpenError as exc:
+        candidates = iter_legend_page_candidates(path, limit=4)
+    except Exception:  # noqa: BLE001
+        candidates = [0]
+
+    best_text: ExtractionResult | None = None
+    last_fail: ExtractionResult | None = None
+    page_count = 0
+
+    for page_index in candidates:
+        try:
+            document = read_document(path, preferred_page=page_index)
+        except PdfOpenError as exc:
+            return failed_extraction(
+                path,
+                code=ErrorCode.PDF_OPEN_FAILED,
+                message=f"Nie można otworzyć PDF: {exc}",
+                file_hash=file_hash,
+                file_size=file_size,
+            )
+        page_count = document.page_count
+        legend = parse_flexo_legend(document.words, document.badges, filename_hint=hint)
+        text_result = _text_result(
+            path,
+            document,
+            file_hash,
+            file_size,
+            hint,
+            revision,
+            legend,
+            page_index=document.page_index,
+        )
+        if text_result.separations:
+            if text_result.status is ValidationStatus.SUCCESS:
+                best_text = text_result
+                break
+            if best_text is None or len(text_result.separations) > len(best_text.separations):
+                best_text = text_result
+        else:
+            last_fail = text_result
+
+    text_result = best_text or last_fail
+    if text_result is None:
         return failed_extraction(
             path,
             code=ErrorCode.PDF_OPEN_FAILED,
-            message=f"Nie można otworzyć PDF: {exc}",
+            message="Nie można odczytać PDF.",
             file_hash=file_hash,
             file_size=file_size,
         )
 
-    hint, revision = filename_order_hint(path.name)
-    legend = parse_flexo_legend(document.words, document.badges, filename_hint=hint)
-    text_result = _text_result(path, document, file_hash, file_size, hint, revision, legend)
     if text_result.status is ValidationStatus.SUCCESS or not options.ocr_enabled:
         return text_result
     if options.on_stage is not None:
         options.on_stage("OCR: start (skan)…")
+
+    ocr_page = getattr(text_result, "page_index", candidates[0] if candidates else 0)
     ocr_result = _ocr_result(
         path,
         config,
         file_hash,
         file_size,
-        document.page_count,
+        page_count or text_result.page_count,
         hint,
         revision,
+        page_index=ocr_page,
         on_stage=options.on_stage,
     )
     return _prefer_result(text_result, ocr_result)
 
 
-def _text_result(path, document, file_hash, file_size, hint, revision, legend) -> ExtractionResult:
+def _text_result(path, document, file_hash, file_size, hint, revision, legend, *, page_index: int) -> ExtractionResult:
     if legend.separations:
         return validate_extraction(
             _result_from_legend(
@@ -69,16 +115,18 @@ def _text_result(path, document, file_hash, file_size, hint, revision, legend) -
                 revision,
                 legend,
                 ExtractionMethod.TEXT,
+                page_index=page_index,
             )
         )
     if text_is_thin(document.words):
         return _failed(
             path,
             code=ErrorCode.TEXT_INCOMPLETE,
-            message="Warstwa tekstowa pierwszej strony nie zawiera tabeli separacji.",
+            message="Warstwa tekstowa strony nie zawiera tabeli separacji.",
             file_hash=file_hash,
             file_size=file_size,
             page_count=document.page_count,
+            page_index=page_index,
             method=None,
             hint=hint,
             revision=revision,
@@ -86,21 +134,33 @@ def _text_result(path, document, file_hash, file_size, hint, revision, legend) -
     return _failed(
         path,
         code=ErrorCode.TABLE_NOT_FOUND,
-        message="Na pierwszej stronie nie rozpoznano tabeli separacji.",
+        message="Nie rozpoznano tabeli / legendy separacji na stronie PDF.",
         file_hash=file_hash,
         file_size=file_size,
         page_count=document.page_count,
+        page_index=page_index,
         method=ExtractionMethod.TEXT,
         hint=hint,
         revision=revision,
     )
 
 
-def _ocr_result(path, config, file_hash, file_size, page_count, hint, revision, on_stage=None) -> ExtractionResult:
-    from pdf_extractor_core.ocr.tesseract_engine import OcrFailed, OcrUnavailable, read_first_page
+def _ocr_result(
+    path,
+    config,
+    file_hash,
+    file_size,
+    page_count,
+    hint,
+    revision,
+    *,
+    page_index: int = 0,
+    on_stage=None,
+) -> ExtractionResult:
+    from pdf_extractor_core.ocr.tesseract_engine import OcrFailed, OcrUnavailable, read_page
 
     try:
-        page = read_first_page(path, config, on_stage=on_stage)
+        page = read_page(path, config, page_index=page_index, on_stage=on_stage)
     except OcrUnavailable as exc:
         return _failed(
             path,
@@ -109,6 +169,7 @@ def _ocr_result(path, config, file_hash, file_size, page_count, hint, revision, 
             file_hash=file_hash,
             file_size=file_size,
             page_count=page_count,
+            page_index=page_index,
             method=None,
             hint=hint,
             revision=revision,
@@ -121,6 +182,7 @@ def _ocr_result(path, config, file_hash, file_size, page_count, hint, revision, 
             file_hash=file_hash,
             file_size=file_size,
             page_count=page_count,
+            page_index=page_index,
             method=ExtractionMethod.OCR,
             hint=hint,
             revision=revision,
@@ -139,6 +201,7 @@ def _ocr_result(path, config, file_hash, file_size, page_count, hint, revision, 
                 revision,
                 legend,
                 ExtractionMethod.OCR,
+                page_index=page_index,
             ),
             ocr_confidence=confidence,
             ocr_confidence_threshold=config.ocr_confidence_threshold,
@@ -147,10 +210,11 @@ def _ocr_result(path, config, file_hash, file_size, page_count, hint, revision, 
         return _failed(
             path,
             code=ErrorCode.TEXT_INCOMPLETE,
-            message="OCR nie znalazł tekstu tabeli separacji na pierwszej stronie.",
+            message="OCR nie znalazł tekstu tabeli separacji.",
             file_hash=file_hash,
             file_size=file_size,
             page_count=page_count,
+            page_index=page_index,
             method=ExtractionMethod.OCR,
             hint=hint,
             revision=revision,
@@ -158,17 +222,29 @@ def _ocr_result(path, config, file_hash, file_size, page_count, hint, revision, 
     return _failed(
         path,
         code=ErrorCode.TABLE_NOT_FOUND,
-        message="OCR nie rozpoznał tabeli separacji na pierwszej stronie.",
+        message="OCR nie rozpoznał tabeli separacji.",
         file_hash=file_hash,
         file_size=file_size,
         page_count=page_count,
+        page_index=page_index,
         method=ExtractionMethod.OCR,
         hint=hint,
         revision=revision,
     )
 
 
-def _result_from_legend(path, page_count, file_hash, file_size, hint, revision, legend, method) -> ExtractionResult:
+def _result_from_legend(
+    path,
+    page_count,
+    file_hash,
+    file_size,
+    hint,
+    revision,
+    legend,
+    method,
+    *,
+    page_index: int = 0,
+) -> ExtractionResult:
     rows = tuple(
         SeparationDraft(
             line_no=index,
@@ -189,7 +265,7 @@ def _result_from_legend(path, page_count, file_hash, file_size, hint, revision, 
         file_hash=file_hash,
         file_size=file_size,
         page_count=page_count,
-        page_index=0,
+        page_index=page_index,
         extraction_method=method,
         profile_id=PROFILE_ID,
         order_number=legend.order_number,
@@ -225,7 +301,19 @@ def _prefer_result(text_result: ExtractionResult, ocr_result: ExtractionResult) 
     return text_result
 
 
-def _failed(path, *, code, message, file_hash, file_size, page_count, method, hint, revision) -> ExtractionResult:
+def _failed(
+    path,
+    *,
+    code,
+    message,
+    file_hash,
+    file_size,
+    page_count,
+    method,
+    hint,
+    revision,
+    page_index: int = 0,
+) -> ExtractionResult:
     result = failed_extraction(path, code=code, message=message, file_hash=file_hash, file_size=file_size)
     return ExtractionResult(
         contract_version=result.contract_version,
@@ -235,7 +323,7 @@ def _failed(path, *, code, message, file_hash, file_size, page_count, method, hi
         file_hash=result.file_hash,
         file_size=result.file_size,
         page_count=page_count,
-        page_index=0,
+        page_index=page_index,
         extraction_method=method,
         profile_id=PROFILE_ID if method is not None else "",
         order_number=None,

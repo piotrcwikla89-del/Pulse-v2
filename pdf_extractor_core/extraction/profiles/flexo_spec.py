@@ -81,12 +81,14 @@ _NOISE_NAMES = frozenset(
         "proof",
     }
 )
-# P287 / PG0874 / PCool… — bez IGNORECASE na prefiksie P (inaczej łapie PROTECTION).
+# P287 / PG0874 / PCool… / WarmGray2 / Nivea… — bez IGNORECASE na samym prefiksie P.
 _COLORISH_NAME = re.compile(
     r"^(?:"
     r"P\d|PG\d|P[A-Z][a-z0-9]|"
     r"(?i:Cyan|Magenta|Yellow|Black|White|Varnish|Matt(?:e)?|Gloss|Silver|Gold|"
-    r"lakier|Highluster|UV(?:Eye)?|Primer|NIVEA)"
+    r"lakier|Highluster|UV(?:Eye)?|Primer|NIVEA|Nivea|"
+    r"Warm\s*Gray|Cool\s*Gray|WarmGray|CoolGray|Process|Orange|Reflex|Vivid|"
+    r"Pantone|Gray|Grey)"
     r")"
 )
 _FLEXMAR_LABEL_NOISE = re.compile(
@@ -303,19 +305,40 @@ def _longest_phrase(words: tuple[WordBox, ...]) -> str | None:
 
 
 def _separations(words: tuple[WordBox, ...], numbers: tuple[BadgeNumber, ...]) -> tuple[ParsedSeparation, ...]:
-    """Kolejność profili: Esko → LAC z pokryciem → LAC same nazwy → Flexmar."""
+    """Kolejność: uniwersalna legenda stacji → Esko → LAC → Flexmar.
 
+    Uniwersalny parser wygrywa, gdy znajdzie sensowną sekwencję 1..N z nazwami —
+    działa niezależnie od układu kolumn i dostawcy PDF.
+    """
+
+    from pdf_extractor_core.extraction.profiles.universal_legend import universal_station_separations
+
+    candidates: list[list[ParsedSeparation]] = []
+    universal = universal_station_separations(words, numbers)
+    if universal:
+        candidates.append(universal)
     esko = _esko_separations(words, numbers)
     if esko:
-        return tuple(_column_then_row(esko))
+        candidates.append(esko)
     lac = _lac_raster_separations(words, numbers)
     if lac:
-        return tuple(_column_then_row(lac))
+        candidates.append(lac)
     names = _lac_name_column_separations(words, numbers)
     if names:
-        return tuple(_column_then_row(names))
+        candidates.append(names)
     flexmar = _flexmar_separations(words)
-    return tuple(_column_then_row(flexmar))
+    if flexmar:
+        candidates.append(flexmar)
+    if not candidates:
+        return ()
+    # Preferuj wynik z największą liczbą nazw + numerami stacji.
+    def _rank(rows: list[ParsedSeparation]) -> tuple[int, int, int]:
+        numbered = sum(1 for row in rows if row.separation_number)
+        colorish = sum(1 for row in rows if _COLORISH_NAME.search(row.color_name))
+        return (len(rows), numbered, colorish)
+
+    best = max(candidates, key=_rank)
+    return tuple(_column_then_row(best))
 
 
 def _esko_separations(words: tuple[WordBox, ...], numbers: tuple[BadgeNumber, ...]) -> list[ParsedSeparation]:
@@ -492,8 +515,11 @@ def _flexmar_separations(words: tuple[WordBox, ...]) -> list[ParsedSeparation]:
             color_name = _join_color_name(name_words)
             if not _usable_color_name(color_name):
                 continue
+            # WarmGray2 / spoty klientów — nie wymagaj sztywnego prefiksu P/CMYK.
             if not _COLORISH_NAME.search(color_name):
-                continue
+                letters = sum(1 for char in color_name if char.isalpha())
+                if letters < 3:
+                    continue
             if _FLEXMAR_LABEL_NOISE.search(color_name):
                 continue
             station = _flexmar_station_for(name_words[0], stations)

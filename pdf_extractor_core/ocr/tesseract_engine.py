@@ -25,7 +25,13 @@ class OcrPage:
 
 
 def read_first_page(path: Path, config: EngineConfig, *, on_stage=None) -> OcrPage:
-    """Renderuje pierwszą stronę i zwraca słowa OCR we współrzędnych PDF."""
+    """Kompatybilność wsteczna — OCR strony 0."""
+
+    return read_page(path, config, page_index=0, on_stage=on_stage)
+
+
+def read_page(path: Path, config: EngineConfig, *, page_index: int = 0, on_stage=None) -> OcrPage:
+    """Renderuje wskazaną stronę i zwraca słowa OCR we współrzędnych PDF."""
 
     executable = resolve_tesseract(config)
     if executable is None:
@@ -45,9 +51,10 @@ def read_first_page(path: Path, config: EngineConfig, *, on_stage=None) -> OcrPa
     _emit(on_stage, "OCR: wycinanie legendy…")
     document = fitz.open(path)
     try:
-        page = document[0]
+        index = max(0, min(int(page_index), document.page_count - 1))
+        page = document[index]
         clip, origin = _legend_clip(page)
-        _emit(on_stage, f"OCR: render {config.ocr_dpi} DPI…")
+        _emit(on_stage, f"OCR: render {config.ocr_dpi} DPI (strona {index + 1})…")
         image = _render(page, clip, config.ocr_dpi)
     except Exception as exc:
         raise OcrFailed(f"Nie można wyrenderować strony do OCR: {exc}") from exc

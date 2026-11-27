@@ -1,4 +1,4 @@
-"""Czyta pierwszą stronę PDF do słów i znaczków numerów. Bez słownika farb."""
+"""Czyta stronę PDF z legendą farb (nie zawsze strona 0). Bez słownika farb."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,7 +7,10 @@ import fitz
 
 from pdf_extractor_core.extraction.badges import BadgeGlyph
 from pdf_extractor_core.extraction.profiles.flexo_spec import screen_anchors
+from pdf_extractor_core.extraction.profiles.universal_legend import score_legend_words
 from pdf_extractor_core.extraction.word_box import WordBox
+
+_MAX_PAGES_SCAN = 12
 
 
 class PdfOpenError(Exception):
@@ -19,10 +22,11 @@ class DocumentText:
     page_count: int
     words: tuple[WordBox, ...]
     badges: tuple[BadgeGlyph, ...]
+    page_index: int = 0
 
 
-def read_document(path: Path) -> DocumentText:
-    """Odczytuje stronę 1. Znaczki cyfr bierze tylko z pasa legendy separacji."""
+def read_document(path: Path, *, preferred_page: int | None = None) -> DocumentText:
+    """Odczytuje stronę z najsilniejszą legendą farb (albo ``preferred_page``)."""
 
     try:
         document = fitz.open(path)
@@ -31,10 +35,19 @@ def read_document(path: Path) -> DocumentText:
     try:
         if document.page_count < 1:
             raise PdfOpenError("PDF nie zawiera stron.")
-        page = document[0]
-        words = _words_from_page(page)
+        page_index = preferred_page
+        if page_index is None:
+            page_index = _best_legend_page(document)
+        page_index = max(0, min(int(page_index), document.page_count - 1))
+        page = document[page_index]
+        words = _words_from_page(page, page_index)
         badges = _badges_in_legend(page, words)
-        return DocumentText(page_count=document.page_count, words=words, badges=badges)
+        return DocumentText(
+            page_count=document.page_count,
+            words=words,
+            badges=badges,
+            page_index=page_index,
+        )
     except PdfOpenError:
         raise
     except Exception as exc:
@@ -43,7 +56,45 @@ def read_document(path: Path) -> DocumentText:
         document.close()
 
 
-def _words_from_page(page: fitz.Page) -> tuple[WordBox, ...]:
+def iter_legend_page_candidates(path: Path, *, limit: int = 4) -> list[int]:
+    """Zwraca indeksy stron od najbardziej prawdopodobnej legendy."""
+
+    try:
+        document = fitz.open(path)
+    except Exception:
+        return [0]
+    try:
+        scored: list[tuple[float, int]] = []
+        limit_pages = min(int(document.page_count), _MAX_PAGES_SCAN)
+        for index in range(limit_pages):
+            words = _words_from_page(document[index], index)
+            scored.append((score_legend_words(words), index))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        # Zawsze dołącz stronę 0 jako fallback.
+        ordered = [index for _score, index in scored if _score > 0]
+        if 0 not in ordered:
+            ordered.append(0)
+        if not ordered:
+            ordered = [0]
+        return ordered[: max(1, limit)]
+    finally:
+        document.close()
+
+
+def _best_legend_page(document: fitz.Document) -> int:
+    best_i = 0
+    best_score = -1.0
+    limit = min(int(document.page_count), _MAX_PAGES_SCAN)
+    for index in range(limit):
+        words = _words_from_page(document[index], index)
+        score = score_legend_words(words)
+        if score > best_score:
+            best_score = score
+            best_i = index
+    return best_i
+
+
+def _words_from_page(page: fitz.Page, page_index: int) -> tuple[WordBox, ...]:
     words: list[WordBox] = []
     for item in page.get_text("words"):
         x0, y0, x1, y1, text = item[:5]
@@ -58,7 +109,7 @@ def _words_from_page(page: fitz.Page) -> tuple[WordBox, ...]:
                 y0=float(y0),
                 x1=float(x1),
                 y1=float(y1),
-                page_index=0,
+                page_index=int(page_index),
                 confidence=100,
             )
         )
@@ -86,16 +137,22 @@ def _badges_in_legend(page: fitz.Page, words: tuple[WordBox, ...]) -> tuple[Badg
 
 
 def _legend_number_zones(words: tuple[WordBox, ...]) -> tuple[tuple[float, float, float, float], ...]:
-    """Pasy numerów stacji: Esko/LAC przy siatce oraz LAC przy markerze ``F``."""
+    """Pasy numerów stacji przy siatce / markerze F / uniwersalnych nazwach."""
 
     zones: list[tuple[float, float, float, float]] = []
     for anchor in screen_anchors(words):
         zones.append((anchor.x0 - 78, anchor.y0 - 6, anchor.x0 + 2, anchor.y1 + 6))
     for word in words:
-        if word.text.strip().lower() != "f" or word.x0 < 400:
+        token = word.text.strip()
+        if token.lower() == "f" and word.x0 >= 400:
+            zones.append((word.x0 - 45, word.y0 - 8, word.x0 - 8, word.y1 + 8))
             continue
-        # Numer w znaczku ~412; nie obejmuje litery F (~440), bo OCR myli F z „5”.
-        zones.append((word.x0 - 45, word.y0 - 8, word.x0 - 8, word.y1 + 8))
+        # Uniwersalnie: strefa na lewo od nazwy farby / screena.
+        from pdf_extractor_core.extraction.profiles.universal_legend import _UNIVERSAL_COLORISH
+        from pdf_extractor_core.extraction.patterns import FLEXMAR_SCREEN_PATTERN
+
+        if _UNIVERSAL_COLORISH.search(token) or FLEXMAR_SCREEN_PATTERN.fullmatch(token):
+            zones.append((word.x0 - 70, word.y0 - 8, word.x0 + 2, word.y1 + 8))
     return tuple(zones)
 
 

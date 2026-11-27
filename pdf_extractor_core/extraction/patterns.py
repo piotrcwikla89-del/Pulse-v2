@@ -14,9 +14,14 @@ LAC_SCREEN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Flexmar: ``133lpi/37,5°`` (bez pokrycia w tym tokenie)
+# Flexmar: ``133lpi/37,5°`` / ``150lpi/7,5°`` (bez pokrycia w tym tokenie)
 FLEXMAR_SCREEN_PATTERN = re.compile(
     r"^\d+(?:[.,]\d+)?\s*lpi\s*/\s*\d+(?:[.,]\d+)?\s*°?$",
+    re.IGNORECASE,
+)
+# Luźniejszy wariant (spacje / OCR): ``150 lpi / 7.5 °``
+FLEXMAR_SCREEN_LOOSE = re.compile(
+    r"\d+(?:[.,]\d+)?\s*lpi\s*/\s*\d+(?:[.,]\d+)?\s*°?",
     re.IGNORECASE,
 )
 
