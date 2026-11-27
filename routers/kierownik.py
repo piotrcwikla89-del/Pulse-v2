@@ -7,7 +7,15 @@ from fastapi import APIRouter, Depends, Query
 from starlette.requests import Request
 
 from dependencies import get_db, require_manager_or_admin
-from helpers import PRODUCTION_MACHINES, WINDING_MACHINES, normalize_shift_label, render_template
+from datetime import datetime, timedelta
+
+from helpers import (
+    PRODUCTION_MACHINES,
+    WINDING_MACHINES,
+    _parse_shift_time,
+    normalize_shift_label,
+    render_template,
+)
 from time_utils import local_day_bounds_utc, local_today, utc_threshold_db_string
 
 router = APIRouter(prefix="/kierownik")
@@ -285,10 +293,159 @@ def kierownik_raport_dziennie(request: Request, user=Depends(require_manager_or_
     })
 
 
+def _empty_shift_bucket():
+    return {
+        "qty": 0,
+        "ok": 0,
+        "nok": 0,
+        "efficiency": 0.0,
+        "winding_ok_m": 0.0,
+        "winding_nok_m": 0.0,
+        "print_ok": 0,
+        "print_nok": 0,
+        "by_machine": {},
+    }
+
+
+def _finalize_shift_bucket(bucket: dict) -> dict:
+    qty = bucket["qty"]
+    bucket["efficiency"] = round(bucket["ok"] * 100 / qty, 1) if qty else 0.0
+    return bucket
+
+
 @router.get("/statystyki-zmian")
-def kierownik_statystyki_zmian(request: Request, user=Depends(require_manager_or_admin)):
+def kierownik_statystyki_zmian(
+    request: Request,
+    user=Depends(require_manager_or_admin),
+    date_q: str = Query("", alias="date"),
+    conn=Depends(get_db),
+):
+    if not date_q:
+        date_q = local_today().strftime("%Y-%m-%d")
+    cur = conn.cursor()
+
+    shifts = {
+        "dzien": {
+            **_empty_shift_bucket(),
+            "key": "dzien",
+            "label": "Dzień",
+            "hours": "6:00 – 18:00",
+        },
+        "noc": {
+            **_empty_shift_bucket(),
+            "key": "noc",
+            "label": "Noc",
+            "hours": "18:00 – 6:00",
+        },
+    }
+
+    cur.execute(
+        """
+        SELECT machine, shift,
+               COALESCE(quantity, 0) AS quantity,
+               COALESCE(ok_quantity, 0) AS ok_quantity,
+               COALESCE(nok_quantity, 0) AS nok_quantity
+        FROM production_reports
+        WHERE date=?
+        """,
+        (date_q,),
+    )
+    for row in cur.fetchall():
+        key = normalize_shift_label(row["shift"])
+        if key not in shifts:
+            continue
+        bucket = shifts[key]
+        qty = int(row["quantity"] or 0)
+        ok = int(row["ok_quantity"] or 0)
+        nok = int(row["nok_quantity"] or 0)
+        bucket["qty"] += qty
+        bucket["ok"] += ok
+        bucket["nok"] += nok
+        machine = row["machine"] or "?"
+        if machine not in bucket["by_machine"]:
+            bucket["by_machine"][machine] = {"qty": 0, "ok": 0, "nok": 0}
+        bucket["by_machine"][machine]["qty"] += qty
+        bucket["by_machine"][machine]["ok"] += ok
+        bucket["by_machine"][machine]["nok"] += nok
+
+    cur.execute(
+        """
+        SELECT machine, shift,
+               COALESCE(ok_meters, 0) AS ok_meters,
+               COALESCE(nok_meters, 0) AS nok_meters
+        FROM winding_reports
+        WHERE date=?
+        """,
+        (date_q,),
+    )
+    for row in cur.fetchall():
+        key = normalize_shift_label(row["shift"])
+        if key not in shifts:
+            continue
+        bucket = shifts[key]
+        ok_m = float(row["ok_meters"] or 0)
+        nok_m = float(row["nok_meters"] or 0)
+        bucket["winding_ok_m"] += ok_m
+        bucket["winding_nok_m"] += nok_m
+        machine = row["machine"] or "?"
+        if machine not in bucket["by_machine"]:
+            bucket["by_machine"][machine] = {"qty": 0, "ok": 0, "nok": 0}
+        # metry pokazujemy osobno; qty zostaje dla druku
+
+    # print_control_reports nie ma kolumny shift — przypisujemy po godzinie (6–18 / 18–6)
+    try:
+        ref_day = datetime.strptime(date_q, "%Y-%m-%d").date()
+    except ValueError:
+        ref_day = local_today()
+        date_q = ref_day.strftime("%Y-%m-%d")
+    next_day = (ref_day + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    cur.execute(
+        """
+        SELECT date, time, status FROM print_control_reports
+        WHERE date=? OR date=?
+        """,
+        (date_q, next_day),
+    )
+    for row in cur.fetchall():
+        time_parts = _parse_shift_time(row["time"])
+        hour = time_parts[0] if time_parts else 12
+        row_date = str(row["date"])[:10]
+        if row_date == date_q and 6 <= hour < 18:
+            key = "dzien"
+        elif row_date == date_q and hour >= 18:
+            key = "noc"
+        elif row_date == next_day and hour < 6:
+            key = "noc"
+        else:
+            continue
+        if (row["status"] or "").upper() == "OK":
+            shifts[key]["print_ok"] += 1
+        else:
+            shifts[key]["print_nok"] += 1
+
+    day_shift = _finalize_shift_bucket(shifts["dzien"])
+    night_shift = _finalize_shift_bucket(shifts["noc"])
+    total_qty = day_shift["qty"] + night_shift["qty"]
+    total_ok = day_shift["ok"] + night_shift["ok"]
+    total_nok = day_shift["nok"] + night_shift["nok"]
+    day_total = {
+        "qty": total_qty,
+        "ok": total_ok,
+        "nok": total_nok,
+        "efficiency": round(total_ok * 100 / total_qty, 1) if total_qty else 0.0,
+        "winding_ok_m": day_shift["winding_ok_m"] + night_shift["winding_ok_m"],
+        "winding_nok_m": day_shift["winding_nok_m"] + night_shift["winding_nok_m"],
+        "print_ok": day_shift["print_ok"] + night_shift["print_ok"],
+        "print_nok": day_shift["print_nok"] + night_shift["print_nok"],
+    }
+
     return render_template("kierownik_statystyki.html", {
-        "user": {"username": user["username"], "role": user["role"]}
+        "user": {"username": user["username"], "role": user["role"]},
+        "date_q": date_q,
+        "day_shift": day_shift,
+        "night_shift": night_shift,
+        "day_total": day_total,
     })
 
 

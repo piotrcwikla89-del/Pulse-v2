@@ -38,8 +38,8 @@
         <div class="col-auto">
             <label class="form-label small mb-0">Zmiana</label>
             <select name="zmiana" class="form-select">
-                <option value="dzien" {% if zmiana == 'dzien' %}selected{% endif %}>Dzień</option>
-                <option value="noc" {% if zmiana == 'noc' %}selected{% endif %}>Noc</option>
+                <option value="dzien" {% if zmiana == 'dzien' %}selected{% endif %}>Dzień (6:00–18:00)</option>
+                <option value="noc" {% if zmiana == 'noc' %}selected{% endif %}>Noc (18:00–6:00)</option>
             </select>
         </div>
         <div class="col-auto">
@@ -50,7 +50,7 @@
     <div class="card shadow-sm p-4">
         <div class="text-center border-bottom pb-3 mb-3">
             <h2 class="h4 mb-1">Sprawozdanie produkcyjno-jakościowe</h2>
-            <p class="mb-0 text-muted">Data: <strong>{{ date_q }}</strong> · Zmiana: <strong>{% if zmiana == 'noc' %}Noc{% else %}Dzień{% endif %}</strong></p>
+            <p class="mb-0 text-muted">Data: <strong>{{ date_q }}</strong> · Zmiana: <strong>{% if zmiana == 'noc' %}Noc (18:00–6:00){% else %}Dzień (6:00–18:00){% endif %}</strong></p>
         </div>
 
         <div class="row g-3 mb-4">
