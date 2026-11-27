@@ -1,4 +1,4 @@
-"""Kolumny widoków planu D/G/J/K/M/P/T/W."""
+"""Kolumny widoków planu D/G/J/M/T/W."""
 
 from __future__ import annotations
 
@@ -17,7 +17,10 @@ from services.planner.plan_display import (
 
 
 def test_operator_columns_letters():
-    assert [c["letter"] for c in OPERATOR_PLAN_COLUMNS] == list("DGJKMPTW")
+    assert [c["letter"] for c in OPERATOR_PLAN_COLUMNS] == list("DGJMTW")
+    by_letter = {c["letter"]: c["label"] for c in OPERATOR_PLAN_COLUMNS}
+    assert by_letter["T"] == "Metry laminatu"
+    assert by_letter["W"] == "Ilość sztuk"
 
 
 def test_operator_cells_from_import_meta():
@@ -40,12 +43,11 @@ def test_operator_cells_from_import_meta():
     }
     cells = operator_cells(plan)
     by_letter = {c["letter"]: c["value"] for c in cells}
+    assert set(by_letter) == {"D", "G", "J", "M", "T", "W"}
     assert by_letter["D"] == "1004534110"
     assert by_letter["G"] == "1528573"
     assert by_letter["J"] == "WDI-TEST"
-    assert by_letter["K"] == "—"
     assert by_letter["M"] == "1438690"
-    assert by_letter["P"] == "41873"
     assert by_letter["T"] == "13958"
     assert by_letter["W"] == "316524"
 

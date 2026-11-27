@@ -6,16 +6,15 @@ from typing import Any
 
 from services.planner.plan_excel import parse_plan_fields
 
-# Litery kolumn z arkusza „Druk - 16L” (A=Stanowisko …).
+# Litery kolumn z arkusza „Druk - 16L” (A=Stanowisko …) — widok operatora.
+# T = metry czystego laminatu, W = ilość sztuk (źródło: Raw Web Used / WBPR order qty UN).
 OPERATOR_PLAN_COLUMNS: tuple[dict[str, str], ...] = (
     {"letter": "D", "label": "Zlecenie", "field": "order_number", "excel": "Zlecenie"},
     {"letter": "G", "label": "Artwork", "field": "artwork_number", "excel": "Artwork Number"},
     {"letter": "J", "label": "Opis materiału", "field": "order_name", "excel": "Opis materiału"},
-    {"letter": "K", "label": "Foil", "field": "foil", "excel": "Foil"},
     {"letter": "M", "label": "Web", "field": "web", "excel": "Web"},
-    {"letter": "P", "label": "Remain to Produce", "field": "remain_qty", "excel": "Remain to Produce"},
-    {"letter": "T", "label": "Raw Web Used", "field": "raw_web_used", "excel": "Raw Web Used"},
-    {"letter": "W", "label": "WBPR order qty UN", "field": "wbpr_qty", "excel": "WBPR order qty UN"},
+    {"letter": "T", "label": "Metry laminatu", "field": "raw_web_used", "excel": "Raw Web Used"},
+    {"letter": "W", "label": "Ilość sztuk", "field": "wbpr_qty", "excel": "WBPR order qty UN"},
 )
 
 
@@ -44,7 +43,7 @@ def excel_map_from_plan(plan: Any) -> dict[str, Any]:
 
 
 def operator_cells(plan: Any) -> list[dict[str, str]]:
-    """Wartości kolumn D/G/J/K/M/P/T/W dla wiersza planu."""
+    """Wartości kolumn D/G/J/M/T/W dla wiersza planu."""
 
     excel = excel_map_from_plan(plan)
     cells: list[dict[str, str]] = []

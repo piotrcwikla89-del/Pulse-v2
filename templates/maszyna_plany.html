@@ -192,7 +192,7 @@
                             </td>
                             {% endif %}
                             {% for cell in p.op_cells %}
-                            <td class="{% if loop.index0 == 0 %}cell-order{% elif loop.index0 == 1 %}cell-artwork{% elif loop.index0 == 2 %}cell-desc{% elif loop.index0 >= 4 %}cell-num{% endif %}" title="{{ cell.raw }}">{{ cell.value }}</td>
+                            <td class="{% if cell.letter == 'D' %}cell-order{% elif cell.letter == 'G' %}cell-artwork{% elif cell.letter == 'J' %}cell-desc{% elif cell.letter in ['M', 'T', 'W'] %}cell-num{% endif %}" title="{{ cell.raw }}">{{ cell.value }}</td>
                             {% endfor %}
                             <td class="cell-lub">{{ p.lub_number or '—' }}</td>
                             <td>
