@@ -19,6 +19,7 @@ from helpers import (
 )
 from services.planner.fs_browse import normalize_folder_path
 from services.planner.ingest import scan_pdf_folder
+from services.planner.lub_import import import_lub_wykaz_bytes, lub_import_status
 from services.planner.settings import get_planner_setting, set_planner_setting
 
 router = APIRouter(prefix="/admin")
@@ -52,6 +53,7 @@ def admin_panel(
         "planner_pdf_root": get_planner_setting(cur, "planner_pdf_root"),
         "planner_last_scan": get_planner_setting(cur, "planner_last_scan_at"),
         "planner_last_summary": get_planner_setting(cur, "planner_last_scan_summary"),
+        "lub_status": lub_import_status(cur),
     }
     if error:
         context["error"] = error
@@ -307,3 +309,47 @@ def import_plany(
         return RedirectResponse(f"/admin?success=Zaimportowano+{count}+planów", status_code=303)
     except Exception as e:
         return RedirectResponse(f"/admin?error=Błąd+importu+planów:+{str(e)}", status_code=303)
+
+
+@router.post("/import_lub_wykaz")
+def import_lub_wykaz(
+    request: Request,
+    plik: UploadFile = File(...),
+    admin=Depends(require_admin),
+    conn=Depends(get_db),
+):
+    """Import arkusza WYKAZ (LUB ↔ ARTWORK) + wiązanie z planami / PDF / draftami."""
+
+    from urllib.parse import quote
+
+    cur = conn.cursor()
+    try:
+        content = plik.file.read()
+        if not content:
+            return RedirectResponse("/admin?error=Pusty+plik", status_code=303)
+        report = import_lub_wykaz_bytes(
+            cur,
+            content,
+            filename=plik.filename or "Wykaz_LUB.xlsx",
+            imported_by=admin.get("username"),
+            link=True,
+        )
+        if report.errors and report.mapped == 0:
+            return RedirectResponse(
+                f"/admin?error={quote('Import LUB: ' + '; '.join(report.errors)[:240])}",
+                status_code=303,
+            )
+        conn.commit()
+        return RedirectResponse(
+            f"/admin?success={quote(report.as_text())}",
+            status_code=303,
+        )
+    except Exception as exc:  # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return RedirectResponse(
+            f"/admin?error={quote('Błąd importu LUB: ' + str(exc)[:200])}",
+            status_code=303,
+        )

@@ -340,6 +340,10 @@ def _import_sheet(
         material_status = _cell_str(col("status materiału"))
         parent = _cell_str(col("parent"))
         lub = _cell_str(col("numer wzorca"))
+        if not lub:
+            from services.planner.lub_import import lookup_lub
+
+            lub = lookup_lub(cur, artwork, order_number) or ""
         name = _cell_str(col("opis materiału")) or _cell_str(col("nazwa 1"))
 
         setup_date = col("setup start date")

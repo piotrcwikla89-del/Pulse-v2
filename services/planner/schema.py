@@ -121,6 +121,9 @@ def create_planner_tables(cur, execute) -> None:
 
     ensure_production_plans_sort_order(cur, execute)
     ensure_plan_import_schema(cur, execute)
+    from services.planner.lub_import import ensure_lub_schema
+
+    ensure_lub_schema(cur, execute)
     ensure_planner_settings(cur, execute)
 
 
