@@ -1,10 +1,9 @@
 """
-Osobny proces OCR/miniatur — poza webem.
+DEPRECATED — wyłączony z Render (2026-11).
 
-Uruchomienie lokalnie / na Render Background Worker:
-  python -m services.planner.ocr_worker
-
-Web tylko rejestruje PDF w kolejce; ten worker robi OCR i thumbs.
+OCR wrócił na web (upload/skan + /admin/planner-process-batch).
+Nie uruchamiaj jako Background Worker: web i worker nie dzielą dysku na Renderze.
+Moduł zostaje tylko jako archiwum / ewentualny lokalny eksperyment.
 """
 
 from __future__ import annotations

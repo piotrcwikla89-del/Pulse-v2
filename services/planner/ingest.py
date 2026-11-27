@@ -186,27 +186,32 @@ def scan_pdf_folder(
                     (_now_iso(), row_id),
                 )
 
-    # Commit rejestracji — ciężkie OCR/miniatury robi wyłącznie ocr_worker, nie HTTP.
+    # Commit rejestracji zanim wejdziemy w OCR.
     _commit(cur)
 
     if process:
-        proc = process_ingest_queue(cur, limit=min(limit, 12), max_seconds=45.0)
+        # Krótka partia na webie — kolejne: /admin/planner-process-batch.
+        proc = process_ingest_queue(cur, limit=min(max(limit, 1), 4), max_seconds=40.0)
         summary.processed = proc["processed"]
         summary.failed = proc["failed"]
         from services.planner.job_link import backfill_all_artworks, link_production_plans
 
         backfill_all_artworks(cur)
         link_report = link_production_plans(cur)
-        thumbs = refresh_existing_thumbnails(cur, limit=min(max(limit, 40), 80), force=False)
+        thumbs = refresh_existing_thumbnails(cur, limit=min(max(limit, 8), 20), force=False)
         extra = (
             f" | powiązano planów={link_report.get('linked', 0)}"
             f" | thumbs+={thumbs.get('updated', 0)}"
             f" | pending={pending_ingest_count(cur)}"
         )
     else:
-        # Szybka ścieżka HTTP: tylko rejestracja kolejki.
-        # Bez link_production_plans — worker też linkuje → deadlock web↔OCR na Postgres.
-        extra = f" | pending={pending_ingest_count(cur)} | OCR=worker"
+        from services.planner.job_link import link_production_plans
+
+        link_report = link_production_plans(cur)
+        extra = (
+            f" | powiązano planów={link_report.get('linked', 0)}"
+            f" | pending={pending_ingest_count(cur)}"
+        )
 
     set_planner_setting(cur, "planner_last_scan_at", _now_iso())
     set_planner_setting(cur, "planner_last_scan_summary", summary.as_text() + extra)

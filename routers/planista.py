@@ -411,8 +411,7 @@ def planista_scan(
         if folder:
             set_planner_setting(cur, "planner_pdf_root", folder)
             conn.commit()
-        # Tylko rejestracja w kolejce — OCR robi background worker.
-        summary = scan_pdf_folder(cur, folder or None, process=False, limit=0, requeue_weak=True)
+        summary = scan_pdf_folder(cur, folder or None, process=True, limit=3, requeue_weak=True)
         conn.commit()
     except Exception as exc:  # noqa: BLE001
         try:
@@ -494,16 +493,13 @@ async def planista_upload_pdfs(
         target.write_bytes(content)
         saved += 1
     cur = conn.cursor()
-    from services.planner.pdf_blobs import ensure_blob_columns
-
-    ensure_blob_columns(cur)
     set_planner_setting(cur, "planner_pdf_root", str(staging))
-    summary = scan_pdf_folder(cur, str(staging), process=False, limit=0)
+    summary = scan_pdf_folder(cur, str(staging), process=True, limit=3)
     conn.commit()
     if saved == 0:
         return RedirectResponse("/planista?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
     return RedirectResponse(
-        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()} (OCR w workerze, PDF w bazie)')}",
+        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()}')}",
         status_code=303,
     )
 
