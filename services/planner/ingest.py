@@ -161,7 +161,8 @@ def scan_pdf_folder(
     _commit(cur)
 
     if process:
-        proc = process_ingest_queue(cur, limit=limit)
+        # Krótka pierwsza partia — pełne OCR wielu PDF w jednym requeście kończy się 502.
+        proc = process_ingest_queue(cur, limit=min(limit, 12), max_seconds=45.0)
         summary.processed = proc["processed"]
         summary.failed = proc["failed"]
 
@@ -170,10 +171,12 @@ def scan_pdf_folder(
     backfill_all_artworks(cur)
     link_report = link_production_plans(cur)
     # Na Render pliki znikają — przebuduj brakujące / starą wersję agresywniej.
-    thumbs = refresh_existing_thumbnails(cur, limit=max(limit, 200), force=False)
+    thumbs = refresh_existing_thumbnails(cur, limit=min(max(limit, 40), 80), force=False)
+    pending_left = pending_ingest_count(cur)
     extra = (
         f" | powiązano planów={link_report.get('linked', 0)}"
         f" | thumbs+={thumbs.get('updated', 0)}"
+        f" | pending={pending_left}"
     )
     set_planner_setting(cur, "planner_last_scan_at", _now_iso())
     set_planner_setting(cur, "planner_last_scan_summary", summary.as_text() + extra)
@@ -181,8 +184,37 @@ def scan_pdf_folder(
     return summary
 
 
-def process_ingest_queue(cur, *, limit: int = 50) -> dict[str, int]:
-    """Przetwarza oczekujące pliki przez pdf_extractor_core."""
+def pending_ingest_count(cur) -> int:
+    cur.execute("SELECT COUNT(*) AS n FROM pdf_ingest_files WHERE status='pending'")
+    row = cur.fetchone()
+    return int(row["n"] if hasattr(row, "keys") else row[0] or 0)
+
+
+def ingest_status_counts(cur) -> dict[str, int]:
+    cur.execute(
+        """
+        SELECT status, COUNT(*) AS n
+        FROM pdf_ingest_files
+        GROUP BY status
+        """
+    )
+    out = {"pending": 0, "done": 0, "error": 0}
+    for row in cur.fetchall():
+        status = (row["status"] if hasattr(row, "keys") else row[0]) or ""
+        n = int(row["n"] if hasattr(row, "keys") else row[1] or 0)
+        out[str(status)] = n
+    return out
+
+
+def process_ingest_queue(
+    cur,
+    *,
+    limit: int = 50,
+    max_seconds: float | None = 50.0,
+) -> dict[str, int]:
+    """Przetwarza oczekujące pliki. ``max_seconds`` chroni przed 502 na Renderze."""
+
+    import time
 
     cur.execute(
         """
@@ -196,7 +228,12 @@ def process_ingest_queue(cur, *, limit: int = 50) -> dict[str, int]:
     rows = cur.fetchall()
     processed = 0
     failed = 0
+    stopped_early = False
+    started = time.monotonic()
     for row in rows:
+        if max_seconds is not None and (time.monotonic() - started) >= float(max_seconds):
+            stopped_early = True
+            break
         ingest_id = row["id"] if hasattr(row, "keys") else row[0]
         file_path = row["file_path"] if hasattr(row, "keys") else row[1]
         try:
@@ -222,7 +259,12 @@ def process_ingest_queue(cur, *, limit: int = 50) -> dict[str, int]:
             failed += 1
         # Po każdym PDF — commit, żeby panel/notification poll nie wisiał na locku.
         _commit(cur)
-    return {"processed": processed, "failed": failed}
+    return {
+        "processed": processed,
+        "failed": failed,
+        "pending": pending_ingest_count(cur),
+        "stopped_early": int(stopped_early),
+    }
 
 
 def _extract_and_store(cur, path: Path) -> int:

@@ -158,12 +158,19 @@
     </div>
 
     <div class="card shadow-sm mb-4">
-        <div class="card-header bg-dark text-white"><i class="fas fa-folder-open"></i> Planista — import PDF (testy)</div>
+        <div class="card-header bg-dark text-white"><i class="fas fa-folder-open"></i> Katalog PDF (OCR partiami)</div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                Ręczny skan folderu sieciowego/lokalnego do katalogu planisty (ekstrakcja lokalna).
-                Docelowo działa też czujka/polling z pulpitu planisty.
+                Import PDF tylko stąd (nie z panelu planisty). OCR idzie <strong>partiami</strong>, żeby uniknąć błędu 502 na Renderze.
+                Po wgraniu / skanie kolejne partie dociągają się automatycznie.
             </p>
+            <div class="alert alert-light border py-2 small mb-3" id="pdfIngestStatus">
+                Kolejka:
+                pending <strong id="pdfPending">{{ pdf_ingest.pending if pdf_ingest else 0 }}</strong> ·
+                done <strong id="pdfDone">{{ pdf_ingest.done if pdf_ingest else 0 }}</strong> ·
+                error <strong id="pdfError">{{ pdf_ingest.error if pdf_ingest else 0 }}</strong>
+                <span id="pdfBatchMsg" class="ms-2 text-muted"></span>
+            </div>
             <form method="post" action="/admin/planner-scan" class="row g-2 align-items-end" id="adminPlannerScanForm">
                 <div class="col-md-8">
                     <label class="form-label small mb-1">Folder PDF na serwerze</label>
@@ -175,7 +182,7 @@
                             <i class="fas fa-folder-open"></i> Przeglądaj
                         </button>
                     </div>
-                    <div class="form-text">Przeglądarka widzi dyski i foldery widoczne dla procesu PULSE (nie Eksplorator Windows z przeglądarki).</div>
+                    <div class="form-text">Ścieżki widoczne dla procesu PULSE na serwerze.</div>
                 </div>
                 <div class="col-md-2">
                     <div class="form-check mt-4">
@@ -184,23 +191,28 @@
                     </div>
                 </div>
                 <div class="col-md-2">
-                    <button type="submit" class="btn btn-warning w-100"><i class="fas fa-sync"></i> Skanuj raz</button>
+                    <button type="submit" class="btn btn-warning w-100"><i class="fas fa-sync"></i> Skanuj</button>
                 </div>
             </form>
             <hr class="my-3">
-            <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="row g-2 align-items-end">
+            <form method="post" action="/admin/upload-pdfs" enctype="multipart/form-data" class="row g-2 align-items-end" id="adminUploadPdfsForm">
                 <div class="col-md-9">
-                    <label class="form-label small mb-1">Albo wgraj PDF z komputera (test)</label>
+                    <label class="form-label small mb-1">Wgraj PDF z komputera</label>
                     <input type="file" name="files" class="form-control" accept=".pdf,application/pdf" multiple required>
                 </div>
                 <div class="col-md-3">
-                    <button type="submit" class="btn btn-success w-100"><i class="fas fa-upload"></i> Wgraj i skanuj</button>
+                    <button type="submit" class="btn btn-success w-100"><i class="fas fa-upload"></i> Wgraj PDF</button>
                 </div>
             </form>
+            <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="pdfProcessBatchBtn">
+                    <i class="fas fa-forward"></i> Przetwórz kolejną partię
+                </button>
+                <a href="/planista" class="btn btn-outline-dark btn-sm"><i class="fas fa-clipboard-list"></i> Panel planisty</a>
+            </div>
             {% if planner_last_scan %}
             <p class="small text-muted mt-2 mb-0">Ostatni skan: {{ planner_last_scan }} — {{ planner_last_summary }}</p>
             {% endif %}
-            <a href="/planista" class="btn btn-outline-dark btn-sm mt-3"><i class="fas fa-clipboard-list"></i> Otwórz panel planisty</a>
         </div>
     </div>
 
@@ -324,5 +336,67 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 {% include '_folder_picker.html' %}
 {% include '_notification_poll.html' %}
+<script>
+(function () {
+  const pendingEl = document.getElementById('pdfPending');
+  const doneEl = document.getElementById('pdfDone');
+  const errorEl = document.getElementById('pdfError');
+  const msgEl = document.getElementById('pdfBatchMsg');
+  const btn = document.getElementById('pdfProcessBatchBtn');
+  let busy = false;
+
+  function setCounts(data) {
+    if (pendingEl && data.pending != null) pendingEl.textContent = data.pending;
+    if (doneEl && data.done != null) doneEl.textContent = data.done;
+    if (errorEl && data.error != null) errorEl.textContent = data.error;
+  }
+
+  async function processBatch() {
+    if (busy) return null;
+    busy = true;
+    if (btn) btn.disabled = true;
+    if (msgEl) msgEl.textContent = 'Przetwarzam partię OCR…';
+    try {
+      const res = await fetch('/admin/planner-process-batch', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        if (msgEl) msgEl.textContent = data?.error || 'Błąd partii OCR';
+        return null;
+      }
+      setCounts(data);
+      if (msgEl) {
+        msgEl.textContent = data.pending > 0
+          ? `+${data.processed} OK / ${data.failed} err · zostało ${data.pending}`
+          : `Gotowe. Ostatnia partia +${data.processed}.`;
+      }
+      return data;
+    } catch (e) {
+      if (msgEl) msgEl.textContent = 'Brak połączenia podczas OCR';
+      return null;
+    } finally {
+      busy = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  btn?.addEventListener('click', () => { processBatch(); });
+
+  async function drainQueue() {
+    for (let i = 0; i < 80; i++) {
+      const data = await processBatch();
+      if (!data) break;
+      if (!data.pending) break;
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
+  {% if pdf_continue or (pdf_ingest and pdf_ingest.pending) %}
+  drainQueue();
+  {% endif %}
+})();
+</script>
 </body>
 </html>

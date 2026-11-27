@@ -18,7 +18,12 @@ from helpers import (
     render_template,
 )
 from services.planner.fs_browse import normalize_folder_path
-from services.planner.ingest import scan_pdf_folder
+from services.planner.ingest import (
+    ingest_status_counts,
+    pending_ingest_count,
+    process_ingest_queue,
+    scan_pdf_folder,
+)
 from services.planner.lub_import import import_lub_wykaz_bytes, lub_import_status
 from services.planner.settings import get_planner_setting, set_planner_setting
 
@@ -31,6 +36,7 @@ def admin_panel(
     admin=Depends(require_admin),
     error: str = Query(None),
     success: str = Query(None),
+    pdf_continue: str = Query(None),
     conn=Depends(get_db),
 ):
     cur = conn.cursor()
@@ -54,6 +60,8 @@ def admin_panel(
         "planner_last_scan": get_planner_setting(cur, "planner_last_scan_at"),
         "planner_last_summary": get_planner_setting(cur, "planner_last_scan_summary"),
         "lub_status": lub_import_status(cur),
+        "pdf_ingest": ingest_status_counts(cur),
+        "pdf_continue": str(pdf_continue or "") in ("1", "true", "yes"),
     }
     if error:
         context["error"] = error
@@ -253,7 +261,8 @@ def admin_planner_scan(
         if save_as_root in ("1", "on", "true"):
             set_planner_setting(cur, "planner_pdf_root", folder)
             conn.commit()
-        summary = scan_pdf_folder(cur, folder, process=True, limit=120)
+        # Rejestracja + krótka partia OCR (kolejne partie: /admin/planner-process-batch).
+        summary = scan_pdf_folder(cur, folder, process=True, limit=12, requeue_weak=True)
         conn.commit()
     except Exception as exc:  # noqa: BLE001
         try:
@@ -267,7 +276,104 @@ def admin_planner_scan(
 
     if summary.missing_root:
         return RedirectResponse(f"/admin?error={quote(summary.as_text())}", status_code=303)
-    return RedirectResponse(f"/admin?success={quote('Skan PDF: ' + summary.as_text())}", status_code=303)
+    pending = pending_ingest_count(cur)
+    msg = summary.as_text()
+    if pending:
+        msg += f" · zostało {pending} PDF — dociąganie w tle"
+        return RedirectResponse(
+            f"/admin?success={quote('Skan PDF: ' + msg)}&pdf_continue=1",
+            status_code=303,
+        )
+    return RedirectResponse(f"/admin?success={quote('Skan PDF: ' + msg)}", status_code=303)
+
+
+@router.post("/planner-process-batch")
+def admin_planner_process_batch(
+    admin=Depends(require_admin),
+    conn=Depends(get_db),
+):
+    """Kolejna partia OCR — wywoływana z JS, żeby uniknąć 502 przy wielu PDF."""
+
+    from services.planner.job_link import backfill_all_artworks, link_production_plans
+    from services.planner.settings import set_planner_setting
+
+    cur = conn.cursor()
+    try:
+        result = process_ingest_queue(cur, limit=8, max_seconds=40.0)
+        backfill_all_artworks(cur)
+        link_report = link_production_plans(cur)
+        counts = ingest_status_counts(cur)
+        set_planner_setting(
+            cur,
+            "planner_last_scan_summary",
+            (
+                f"partia=+{result['processed']}/err={result['failed']}"
+                f" · pending={counts.get('pending', 0)}"
+                f" · done={counts.get('done', 0)}"
+                f" · link+={link_report.get('linked', 0)}"
+            ),
+        )
+        conn.commit()
+        return {
+            "ok": True,
+            "processed": result["processed"],
+            "failed": result["failed"],
+            "pending": counts.get("pending", 0),
+            "done": counts.get("done", 0),
+            "error": counts.get("error", 0),
+        }
+    except Exception as exc:  # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": False, "error": str(exc)[:240], "pending": pending_ingest_count(cur)}
+
+
+@router.post("/upload-pdfs")
+async def admin_upload_pdfs(
+    request: Request,
+    admin=Depends(require_admin),
+    conn=Depends(get_db),
+    files: list[UploadFile] = File(...),
+):
+    """Wgrywa PDF do stagingu, rejestruje je i odpala pierwszą partię OCR."""
+
+    from pathlib import Path
+    from urllib.parse import quote
+
+    from services.runtime_env import planner_upload_dir
+
+    staging = planner_upload_dir()
+    saved = 0
+    for upload in files:
+        name = (upload.filename or "").strip()
+        if not name.lower().endswith(".pdf"):
+            continue
+        safe = Path(name).name
+        target = staging / safe
+        content = await upload.read()
+        if not content:
+            continue
+        target.write_bytes(content)
+        saved += 1
+    if saved == 0:
+        return RedirectResponse("/admin?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
+
+    cur = conn.cursor()
+    set_planner_setting(cur, "planner_pdf_root", str(staging))
+    # Najpierw tylko rejestracja (szybko), potem krótka partia.
+    summary = scan_pdf_folder(cur, str(staging), process=True, limit=8, requeue_weak=False)
+    conn.commit()
+    pending = pending_ingest_count(cur)
+    msg = f"Wgrano {saved} PDF. {summary.as_text()}"
+    if pending:
+        msg += f" · zostało {pending} — dociąganie w tle"
+        return RedirectResponse(
+            f"/admin?success={quote(msg)}&pdf_continue=1",
+            status_code=303,
+        )
+    return RedirectResponse(f"/admin?success={quote(msg)}", status_code=303)
 
 
 @router.post("/import_plany")
