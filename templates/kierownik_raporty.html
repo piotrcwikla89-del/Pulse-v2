@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raporty — kierownik</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .report-pick {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+        }
+        .report-pick a {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            padding: 1.35rem 1.4rem;
+            min-height: 140px;
+            transition: transform .15s ease, box-shadow .15s ease;
+        }
+        .report-pick a:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+            color: inherit;
+        }
+        .report-pick h2 { font-size: 1.25rem; font-weight: 700; margin: .35rem 0; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container mt-4 mb-5">
+    <div class="page-toolbar">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-clipboard-list"></i> Raporty</h1>
+            <p class="mb-0">Wybierz zakres — dzienny albo zmianowy.</p>
+        </div>
+        <div class="toolbar-actions">
+            <a href="/kierownik" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> Panel kierownika</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+        </div>
+    </div>
+
+    <div class="report-pick">
+        <a href="/kierownik/raport-dziennie">
+            <div class="text-muted small text-uppercase fw-bold">Dzienny</div>
+            <h2>Raport dzienny</h2>
+            <p class="mb-0 text-muted">Podsumowanie produkcji z bieżącego dnia per maszyna.</p>
+        </a>
+        <a href="/kierownik/raport-zmiany">
+            <div class="text-muted small text-uppercase fw-bold">Zmianowy</div>
+            <h2>Raport zmiany</h2>
+            <p class="mb-0 text-muted">Zbiorczy wynik wybranej zmiany (dzień / noc).</p>
+        </a>
+        <a href="/kierownik/rejestr-raportow">
+            <div class="text-muted small text-uppercase fw-bold">Rejestr</div>
+            <h2>Rejestr raportów</h2>
+            <p class="mb-0 text-muted">Zadruk, produkcja i przewijanie — lista szczegółowa.</p>
+        </a>
+        <a href="/kierownik/raport-jakosci">
+            <div class="text-muted small text-uppercase fw-bold">Jakość</div>
+            <h2>Raport jakości</h2>
+            <p class="mb-0 text-muted">Kontrola zadruku OK / NOK na dziś.</p>
+        </a>
+        <a href="/kierownik/dziennik-zmian">
+            <div class="text-muted small text-uppercase fw-bold">Dziennik</div>
+            <h2>Dziennik zmian</h2>
+            <p class="mb-0 text-muted">Ostatnie zdarzenia produkcyjne (7 dni).</p>
+        </a>
+    </div>
+</div>
+</body>
+</html>

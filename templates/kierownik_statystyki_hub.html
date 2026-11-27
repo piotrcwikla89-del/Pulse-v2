@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statystyki — kierownik</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .stats-pick {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+        }
+        .stats-pick a, .stats-pick .soon {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            padding: 1.35rem 1.4rem;
+            min-height: 150px;
+        }
+        .stats-pick a:hover {
+            box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+            color: inherit;
+        }
+        .stats-pick .soon { opacity: .72; }
+        .stats-pick h2 { font-size: 1.2rem; font-weight: 700; margin: .35rem 0; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container mt-4 mb-5">
+    <div class="page-toolbar">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-chart-line"></i> Statystyki</h1>
+            <p class="mb-0">Dane historyczne, wyniki okresowe, brygady i overall.</p>
+        </div>
+        <div class="toolbar-actions">
+            <a href="/kierownik" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> Panel kierownika</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+        </div>
+    </div>
+
+    <div class="stats-pick">
+        <a href="/kierownik/statystyki-zmian">
+            <div class="text-muted small text-uppercase fw-bold">Zmiany</div>
+            <h2>Statystyki zmian</h2>
+            <p class="mb-0 text-muted">Wyniki per zmiana / data — dostępny widok operacyjny.</p>
+        </a>
+        <div class="soon">
+            <div class="text-muted small text-uppercase fw-bold">Miesiąc</div>
+            <h2>Wyniki miesięczne</h2>
+            <p class="mb-0 text-muted">Bieżący i poprzednie miesiące — w przygotowaniu (praca stacjonarna).</p>
+        </div>
+        <div class="soon">
+            <div class="text-muted small text-uppercase fw-bold">Rok</div>
+            <h2>Wyniki roczne</h2>
+            <p class="mb-0 text-muted">Trendy roczne i porównania — w przygotowaniu.</p>
+        </div>
+        <div class="soon">
+            <div class="text-muted small text-uppercase fw-bold">Brygady</div>
+            <h2>Według brygad</h2>
+            <p class="mb-0 text-muted">Porównanie brygad vs overall — w przygotowaniu.</p>
+        </div>
+        <div class="soon">
+            <div class="text-muted small text-uppercase fw-bold">Wykresy</div>
+            <h2>Historia i wykresy</h2>
+            <p class="mb-0 text-muted">Efektywność / scrap w czasie — przeniesione poza panel live.</p>
+        </div>
+    </div>
+</div>
+</body>
+</html>

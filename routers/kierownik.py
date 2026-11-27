@@ -13,131 +13,153 @@ from time_utils import local_day_bounds_utc, local_today, utc_threshold_db_strin
 router = APIRouter(prefix="/kierownik")
 
 
+STATUS_LABELS = {
+    "run": "Run",
+    "przezbrojenie": "Przezbrojenie",
+    "problem": "Problem",
+    "nieobsadzona": "Nieobsadzona",
+    "operator": "Operator",
+}
+
+
+def _machine_operator_name(cur, machine: str, plan_id=None, since_utc=None):
+    if plan_id:
+        cur.execute(
+            """
+            SELECT actor_user FROM events
+            WHERE event_type='JOB_STARTED' AND machine=? AND plan_id=?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (machine, plan_id),
+        )
+        row = cur.fetchone()
+        if row and row["actor_user"]:
+            return row["actor_user"]
+    if since_utc:
+        cur.execute(
+            """
+            SELECT actor_user FROM events
+            WHERE event_type='JOB_STARTED' AND machine=? AND created_at >= ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (machine, since_utc),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT actor_user FROM events
+            WHERE event_type='JOB_STARTED' AND machine=?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (machine,),
+        )
+    row = cur.fetchone()
+    return row["actor_user"] if row and row["actor_user"] else None
+
+
+def _open_machine_problem(cur, machine: str):
+    cur.execute(
+        """
+        SELECT pc.label, pri.short_note
+        FROM production_report_issues pri
+        JOIN production_reports pr ON pr.id = pri.production_report_id
+        JOIN problem_categories pc ON pc.id = pri.problem_category_id
+        WHERE pr.machine=? AND pri.status='new'
+        ORDER BY pri.id DESC LIMIT 1
+        """,
+        (machine,),
+    )
+    row = cur.fetchone()
+    if row:
+        return row["short_note"] or row["label"]
+    return None
+
+
 @router.get("")
 def kierownik(request: Request, user=Depends(require_manager_or_admin), conn=Depends(get_db)):
     cur = conn.cursor()
-    start_utc, end_utc = local_day_bounds_utc()
+    start_utc, _end_utc = local_day_bounds_utc()
     machine_rows = []
-    active_count = 0
 
     for machine in list(PRODUCTION_MACHINES) + list(WINDING_MACHINES):
+        is_winder = machine in WINDING_MACHINES
+        machine_type = "przewijarka" if is_winder else "druk"
+        href = f"/przewijarka/{machine}/plany" if is_winder else f"/maszyna/{machine}/plany"
+
         cur.execute(
-            "SELECT id, order_number, order_name, status FROM production_plans WHERE machine=? AND status IN ('planned', 'in_progress') ORDER BY CASE WHEN status='in_progress' THEN 0 ELSE 1 END, id DESC LIMIT 1",
+            """
+            SELECT id, order_number, order_name, status, lub_number
+            FROM production_plans
+            WHERE machine=? AND status='in_progress'
+            ORDER BY id DESC LIMIT 1
+            """,
             (machine,),
         )
-        active_plan = cur.fetchone()
-        cur.execute("SELECT COUNT(*) AS pending_count FROM production_plans WHERE machine=? AND status='planned'", (machine,))
-        pending_count = (cur.fetchone()["pending_count"] or 0)
-        if machine in WINDING_MACHINES:
-            cur.execute(
-                "SELECT created_at, order_number, ok_meters, nok_meters FROM winding_reports WHERE machine=? AND created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 1",
-                (machine, start_utc, end_utc),
-            )
-            latest_report = cur.fetchone()
-            cur.execute(
-                "SELECT COALESCE(SUM(ok_meters), 0) AS today_output FROM winding_reports WHERE machine=? AND created_at >= ? AND created_at < ?",
-                (machine, start_utc, end_utc),
-            )
-            today_output = cur.fetchone()["today_output"] or 0
-            machine_type = "przewijarka"
-            output_label = "m OK"
-        else:
-            cur.execute(
-                "SELECT created_at, job_number, quantity, ok_quantity FROM production_reports WHERE machine=? AND created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 1",
-                (machine, start_utc, end_utc),
-            )
-            latest_report = cur.fetchone()
-            cur.execute(
-                "SELECT COALESCE(SUM(quantity), 0) AS today_output FROM production_reports WHERE machine=? AND created_at >= ? AND created_at < ?",
-                (machine, start_utc, end_utc),
-            )
-            today_output = cur.fetchone()["today_output"] or 0
-            machine_type = "druk"
-            output_label = "szt."
+        running_plan = cur.fetchone()
+        cur.execute(
+            """
+            SELECT id, order_number, order_name, status, lub_number
+            FROM production_plans
+            WHERE machine=? AND status='planned'
+            ORDER BY id ASC LIMIT 1
+            """,
+            (machine,),
+        )
+        next_plan = cur.fetchone()
+        cur.execute(
+            "SELECT COUNT(*) AS pending_count FROM production_plans WHERE machine=? AND status='planned'",
+            (machine,),
+        )
+        pending_count = cur.fetchone()["pending_count"] or 0
 
-        active_status = "W toku" if active_plan and active_plan["status"] == "in_progress" else "Oczekuje" if pending_count else "Brak planu"
-        if active_plan and active_plan["status"] == "in_progress":
-            active_count += 1
+        problem_note = _open_machine_problem(cur, machine)
+        display_plan = running_plan or next_plan
+        operator_name = None
+
+        if problem_note:
+            status_key = "problem"
+            operator_name = _machine_operator_name(
+                cur, machine, running_plan["id"] if running_plan else None
+            )
+        elif running_plan:
+            status_key = "run"
+            operator_name = _machine_operator_name(cur, machine, running_plan["id"])
+        elif pending_count > 0:
+            status_key = "przezbrojenie"
+            operator_name = _machine_operator_name(cur, machine, since_utc=start_utc)
+        else:
+            operator_name = _machine_operator_name(cur, machine, since_utc=start_utc)
+            status_key = "operator" if operator_name else "nieobsadzona"
 
         machine_rows.append({
             "machine": machine,
             "machine_type": machine_type,
-            "active_status": active_status,
-            "active_plan": dict(active_plan) if active_plan else None,
+            "href": href,
+            "status_key": status_key,
+            "status_label": STATUS_LABELS[status_key],
+            "active_plan": dict(display_plan) if display_plan else None,
             "pending_count": pending_count,
-            "today_output": today_output,
-            "output_label": output_label,
-            "latest_report": dict(latest_report) if latest_report else None,
+            "operator_name": operator_name,
+            "problem_note": problem_note,
         })
-
-    cur.execute(
-        "SELECT COALESCE(SUM(quantity), 0) AS total_qty, COALESCE(SUM(ok_quantity), 0) AS total_ok, COALESCE(SUM(nok_quantity), 0) AS total_nok FROM production_reports WHERE created_at >= ? AND created_at < ?",
-        (start_utc, end_utc),
-    )
-    production_stats = cur.fetchone()
-    cur.execute(
-        "SELECT COALESCE(SUM(ok_meters), 0) AS ok_meters, COALESCE(SUM(nok_meters), 0) AS nok_meters FROM winding_reports WHERE created_at >= ? AND created_at < ?",
-        (start_utc, end_utc),
-    )
-    winding_stats = cur.fetchone()
-    cur.execute(
-        "SELECT COUNT(*) AS total_reports, COALESCE(SUM(CASE WHEN status='OK' THEN 1 ELSE 0 END), 0) AS ok_reports FROM print_control_reports WHERE created_at >= ? AND created_at < ?",
-        (start_utc, end_utc),
-    )
-    quality_stats = cur.fetchone()
-    total_reports = quality_stats["total_reports"] or 0
-    quality_score = round((quality_stats["ok_reports"] or 0) * 100 / total_reports, 1) if total_reports else 0
-
-    production_machine_metrics = []
-    overall_qty = 0
-    overall_ok = 0
-    overall_nok = 0
-    for machine in list(PRODUCTION_MACHINES):
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(quantity), 0) AS qty, COALESCE(SUM(ok_quantity), 0) AS ok_qty,
-                   COALESCE(SUM(nok_quantity), 0) AS nok_qty
-            FROM production_reports
-            WHERE created_at >= ? AND created_at < ? AND machine=?
-            """,
-            (start_utc, end_utc, machine),
-        )
-        metrics = cur.fetchone()
-        qty = metrics["qty"] or 0
-        ok_qty = metrics["ok_qty"] or 0
-        nok_qty = metrics["nok_qty"] or 0
-        overall_qty += qty
-        overall_ok += ok_qty
-        overall_nok += nok_qty
-        ok_pct = round(ok_qty * 100 / qty, 1) if qty else 0
-        scrap_pct = round(nok_qty * 100 / qty, 1) if qty else 0
-        production_machine_metrics.append({
-            "machine": machine,
-            "qty": qty,
-            "ok_qty": ok_qty,
-            "nok_qty": nok_qty,
-            "ok_pct": ok_pct,
-            "scrap_pct": scrap_pct,
-        })
-
-    overall_ok_pct = round(overall_ok * 100 / overall_qty, 1) if overall_qty else 0
-    overall_scrap_pct = round(overall_nok * 100 / overall_qty, 1) if overall_qty else 0
 
     return render_template("kierownik.html", {
         "user": {"username": user["username"], "role": user["role"]},
         "machine_rows": machine_rows,
-        "active_count": active_count,
-        "machine_total": len(machine_rows),
-        "production_total": production_stats["total_qty"] or 0,
-        "production_ok": production_stats["total_ok"] or 0,
-        "production_nok": production_stats["total_nok"] or 0,
-        "winding_ok_meters": winding_stats["ok_meters"] or 0,
-        "winding_nok_meters": winding_stats["nok_meters"] or 0,
-        "quality_score": quality_score,
-        "print_reports_total": total_reports,
-        "production_machine_metrics": production_machine_metrics,
-        "overall_ok_pct": overall_ok_pct,
-        "overall_scrap_pct": overall_scrap_pct,
+    })
+
+
+@router.get("/raporty")
+def kierownik_raporty_hub(request: Request, user=Depends(require_manager_or_admin)):
+    return render_template("kierownik_raporty.html", {
+        "user": {"username": user["username"], "role": user["role"]},
+    })
+
+
+@router.get("/statystyki")
+def kierownik_statystyki_hub(request: Request, user=Depends(require_manager_or_admin)):
+    return render_template("kierownik_statystyki_hub.html", {
+        "user": {"username": user["username"], "role": user["role"]},
     })
 
 
