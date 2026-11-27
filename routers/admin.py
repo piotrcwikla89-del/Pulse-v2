@@ -261,8 +261,8 @@ def admin_planner_scan(
         if save_as_root in ("1", "on", "true"):
             set_planner_setting(cur, "planner_pdf_root", folder)
             conn.commit()
-        # Rejestracja + krótka partia OCR (kolejne partie: /admin/planner-process-batch).
-        summary = scan_pdf_folder(cur, folder, process=True, limit=12, requeue_weak=True)
+        # Tylko rejestracja — OCR idzie partiami z /admin/planner-process-batch (bez 502).
+        summary = scan_pdf_folder(cur, folder, process=False, limit=0, requeue_weak=True)
         conn.commit()
     except Exception as exc:  # noqa: BLE001
         try:
@@ -279,7 +279,7 @@ def admin_planner_scan(
     pending = pending_ingest_count(cur)
     msg = summary.as_text()
     if pending:
-        msg += f" · zostało {pending} PDF — dociąganie w tle"
+        msg += f" · zarejestrowano, OCR w kolejce ({pending})"
         return RedirectResponse(
             f"/admin?success={quote('Skan PDF: ' + msg)}&pdf_continue=1",
             status_code=303,
@@ -292,42 +292,73 @@ def admin_planner_process_batch(
     admin=Depends(require_admin),
     conn=Depends(get_db),
 ):
-    """Kolejna partia OCR — wywoływana z JS, żeby uniknąć 502 przy wielu PDF."""
+    """Kolejna partia OCR — jeden lock globalny, żeby nie zablokować całego serwisu."""
 
     from services.planner.job_link import backfill_all_artworks, link_production_plans
+    from services.planner.ocr_lock import try_ocr_lock
     from services.planner.settings import set_planner_setting
 
     cur = conn.cursor()
-    try:
-        result = process_ingest_queue(cur, limit=8, max_seconds=40.0)
-        backfill_all_artworks(cur)
-        link_report = link_production_plans(cur)
-        counts = ingest_status_counts(cur)
-        set_planner_setting(
-            cur,
-            "planner_last_scan_summary",
-            (
-                f"partia=+{result['processed']}/err={result['failed']}"
-                f" · pending={counts.get('pending', 0)}"
-                f" · done={counts.get('done', 0)}"
-                f" · link+={link_report.get('linked', 0)}"
-            ),
-        )
-        conn.commit()
+    counts = ingest_status_counts(cur)
+    if counts.get("pending", 0) <= 0:
         return {
             "ok": True,
-            "processed": result["processed"],
-            "failed": result["failed"],
-            "pending": counts.get("pending", 0),
+            "processed": 0,
+            "failed": 0,
+            "pending": 0,
             "done": counts.get("done", 0),
             "error": counts.get("error", 0),
+            "busy": False,
         }
-    except Exception as exc:  # noqa: BLE001
+
+    with try_ocr_lock(timeout=0.05) as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "busy": True,
+                "processed": 0,
+                "failed": 0,
+                "pending": counts.get("pending", 0),
+                "done": counts.get("done", 0),
+                "error": counts.get("error", 0),
+            }
         try:
-            conn.rollback()
-        except Exception:  # noqa: BLE001
-            pass
-        return {"ok": False, "error": str(exc)[:240], "pending": pending_ingest_count(cur)}
+            # Krótka partia: 1–2 PDF / ~20 s — drugi worker zostaje wolny na UI/health.
+            result = process_ingest_queue(cur, limit=2, max_seconds=20.0)
+            backfill_all_artworks(cur)
+            link_report = link_production_plans(cur)
+            counts = ingest_status_counts(cur)
+            set_planner_setting(
+                cur,
+                "planner_last_scan_summary",
+                (
+                    f"partia=+{result['processed']}/err={result['failed']}"
+                    f" · pending={counts.get('pending', 0)}"
+                    f" · done={counts.get('done', 0)}"
+                    f" · link+={link_report.get('linked', 0)}"
+                ),
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "busy": False,
+                "processed": result["processed"],
+                "failed": result["failed"],
+                "pending": counts.get("pending", 0),
+                "done": counts.get("done", 0),
+                "error": counts.get("error", 0),
+            }
+        except Exception as exc:  # noqa: BLE001
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return {
+                "ok": False,
+                "error": str(exc)[:240],
+                "pending": pending_ingest_count(cur),
+                "busy": False,
+            }
 
 
 @router.post("/upload-pdfs")
@@ -362,13 +393,13 @@ async def admin_upload_pdfs(
 
     cur = conn.cursor()
     set_planner_setting(cur, "planner_pdf_root", str(staging))
-    # Najpierw tylko rejestracja (szybko), potem krótka partia.
-    summary = scan_pdf_folder(cur, str(staging), process=True, limit=8, requeue_weak=False)
+    # Szybka rejestracja bez OCR w tym samym requeście (upload + OCR = 502).
+    summary = scan_pdf_folder(cur, str(staging), process=False, limit=0, requeue_weak=False)
     conn.commit()
     pending = pending_ingest_count(cur)
     msg = f"Wgrano {saved} PDF. {summary.as_text()}"
     if pending:
-        msg += f" · zostało {pending} — dociąganie w tle"
+        msg += f" · OCR w kolejce ({pending})"
         return RedirectResponse(
             f"/admin?success={quote(msg)}&pdf_continue=1",
             status_code=303,

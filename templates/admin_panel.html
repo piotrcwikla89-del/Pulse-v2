@@ -368,9 +368,13 @@
       }
       setCounts(data);
       if (msgEl) {
-        msgEl.textContent = data.pending > 0
-          ? `+${data.processed} OK / ${data.failed} err · zostało ${data.pending}`
-          : `Gotowe. Ostatnia partia +${data.processed}.`;
+        if (data.busy) {
+          msgEl.textContent = `OCR zajęty · zostało ${data.pending}`;
+        } else {
+          msgEl.textContent = data.pending > 0
+            ? `+${data.processed} OK / ${data.failed} err · zostało ${data.pending}`
+            : `Gotowe. Ostatnia partia +${data.processed}.`;
+        }
       }
       return data;
     } catch (e) {
@@ -385,15 +389,21 @@
   btn?.addEventListener('click', () => { processBatch(); });
 
   async function drainQueue() {
-    for (let i = 0; i < 80; i++) {
+    // Wolne dociąganie: max ~1 PDF/partia, przerwa 3 s — UI i /health zostają responsywne.
+    for (let i = 0; i < 60; i++) {
       const data = await processBatch();
       if (!data) break;
+      if (data.busy) {
+        if (msgEl) msgEl.textContent = 'OCR zajęty innym workerem — czekam…';
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
       if (!data.pending) break;
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 3000));
     }
   }
 
-  {% if pdf_continue or (pdf_ingest and pdf_ingest.pending) %}
+  {% if pdf_continue %}
   drainQueue();
   {% endif %}
 })();
