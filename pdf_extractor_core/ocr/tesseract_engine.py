@@ -61,20 +61,52 @@ def read_page(path: Path, config: EngineConfig, *, page_index: int = 0, on_stage
     finally:
         document.close()
 
-    left_px = color_grid_left(grayscale(image), config.ocr_dpi)
-    # Nagłówek (data, job, plate) siedzi w górnej części legendy — mniejszy obraz = szybszy Tesseract.
-    header_height = max(80, int(image.shape[0] * 0.42))
-    _emit(on_stage, "OCR: odczyt nagłówka…")
-    header_words = _recognize(fade_color(image[:header_height, :]), config, executable, origin)
-    if left_px is None or left_px < 20 or left_px >= image.shape[1] - 20:
-        return OcrPage(words=tuple(header_words))
+    # Najpewniejszy odczyt Albéa/Flexmar: cała legenda po wygaszeniu próbek kolorów.
+    # Sam crop prawej siatki + mask_swatches często gubi P193/P128/Varnish.
+    _emit(on_stage, "OCR: odczyt legendy (pełny pas)…")
+    faded_words = _recognize(fade_color(image), config, executable, origin)
 
-    scale = 72.0 / config.ocr_dpi
-    grid_x = origin[0] + left_px * scale
-    _emit(on_stage, "OCR: odczyt tabeli farb…")
-    grid = prepare_ocr_image(image[:, left_px:], dpi=config.ocr_dpi)
-    grid_words = _recognize(grid.gray, config, executable, (grid_x, origin[1]))
-    return OcrPage(words=tuple(_merge_legend_words(header_words, grid_words, grid_x)))
+    prepared = prepare_ocr_image(image, dpi=config.ocr_dpi)
+    _emit(on_stage, "OCR: odczyt legendy (przygotowany)…")
+    prepared_words = _recognize(prepared.gray, config, executable, origin)
+
+    merged = _merge_word_passes(faded_words, prepared_words)
+
+    left_px = color_grid_left(grayscale(image), config.ocr_dpi)
+    if left_px is not None and 20 <= left_px < image.shape[1] - 20:
+        scale = 72.0 / config.ocr_dpi
+        grid_x = origin[0] + left_px * scale
+        _emit(on_stage, "OCR: odczyt prawej siatki farb…")
+        grid = prepare_ocr_image(image[:, left_px:], dpi=config.ocr_dpi)
+        grid_words = _recognize(grid.gray, config, executable, (grid_x, origin[1]))
+        merged = _merge_word_passes(merged, grid_words)
+
+    return OcrPage(words=tuple(merged))
+
+
+def _merge_word_passes(*passes: list[WordBox]) -> list[WordBox]:
+    """Łączy wyniki OCR z kilku przebiegów; przy kolizji zostawia wyższą pewność."""
+
+    kept: list[WordBox] = []
+    for batch in passes:
+        for word in batch:
+            token = word.text.strip()
+            if not token:
+                continue
+            duplicate = False
+            for index, existing in enumerate(kept):
+                if abs(existing.y0 - word.y0) > 6 or abs(existing.x0 - word.x0) > 10:
+                    continue
+                # Ten sam region — wybierz lepszą pewność / dłuższy token.
+                if word.confidence > existing.confidence or (
+                    word.confidence == existing.confidence and len(token) > len(existing.text.strip())
+                ):
+                    kept[index] = word
+                duplicate = True
+                break
+            if not duplicate:
+                kept.append(word)
+    return kept
 
 
 def _emit(on_stage, message: str) -> None:

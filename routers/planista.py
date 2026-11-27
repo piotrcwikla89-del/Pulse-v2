@@ -525,6 +525,13 @@ async def planista_upload_pdfs(
     with_colors = int((_row_get(row, "with_colors", 0) or 0))
     zero_colors = int((_row_get(row, "zero_colors", 1) or 0))
     extra = f" Kolory: OK={with_colors}, brak={zero_colors}."
+    try:
+        import shutil
+
+        if shutil.which("tesseract") is None:
+            extra += " UWAGA: brak Tesseract OCR na serwerze — skany PDF bez tekstu będą miały 0 kolorów."
+    except Exception:  # noqa: BLE001
+        pass
     return RedirectResponse(
         f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()}.{extra}')}",
         status_code=303,

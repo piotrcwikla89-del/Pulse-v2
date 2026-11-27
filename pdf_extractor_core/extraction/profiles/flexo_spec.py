@@ -31,9 +31,17 @@ _DATE_FORMATS = (
 )
 _SCREEN_NUMBER = re.compile(r"^\d+(?:\.\d+)?$")
 # Separatory OCR bywają ``/``, ``|``, ``!``, spacje albo sklejone w jednym tokenie.
+# Pełne: ``133.0 / 37.5 / 3.56%``; okrojone OCR: ``133.0 / 3.58%``.
 _SCREEN_SEARCH = re.compile(
-    r"(?P<lpi>\d+(?:[.,]\d+)?)\s*(?:[\/|!:]+\s*)?(?P<angle>\d+(?:[.,]\d+)?)\s*(?:[\/|!:]+\s*)?"
+    r"(?P<lpi>\d+(?:[.,]\d+)?)\s*(?:[\/|!:]+\s*)(?:(?P<angle>\d+(?:[.,]\d+)?)\s*(?:[\/|!:]+\s*))?"
     r"(?P<coverage>\d+(?:[.,]\d+)?)\s*%"
+)
+_SCREEN_SEARCH_LOOSE = re.compile(
+    r"(?P<lpi>\d+(?:[.,]\d+)?)\s+(?P<angle>\d+(?:[.,]\d+)?)\s+(?P<coverage>\d+(?:[.,]\d+)?)\s*%"
+)
+_OCR_COLOR_TOKEN = re.compile(
+    r"^(?:P\d{2,4}(?:\s*\d)?|Varnish|Cyan|Magenta|Yellow|Black)$",
+    re.IGNORECASE,
 )
 _LAC_SCREEN_SEARCH = re.compile(
     r"(?P<coverage>\d+(?:[.,]\d+)?)\s*%\s+(?P<lpi>\d+(?:\.\d+)?)\s+lpi\s+"
@@ -305,7 +313,7 @@ def _longest_phrase(words: tuple[WordBox, ...]) -> str | None:
 
 
 def _separations(words: tuple[WordBox, ...], numbers: tuple[BadgeNumber, ...]) -> tuple[ParsedSeparation, ...]:
-    """Kolejność: uniwersalna legenda stacji → Esko → LAC → Flexmar.
+    """Kolejność: uniwersalna legenda stacji → Esko → OCR pantone → LAC → Flexmar.
 
     Uniwersalny parser wygrywa, gdy znajdzie sensowną sekwencję 1..N z nazwami —
     działa niezależnie od układu kolumn i dostawcy PDF.
@@ -320,6 +328,9 @@ def _separations(words: tuple[WordBox, ...], numbers: tuple[BadgeNumber, ...]) -
     esko = _esko_separations(words, numbers)
     if esko:
         candidates.append(esko)
+    ocr_colors = _ocr_color_coverage_separations(words, numbers)
+    if ocr_colors:
+        candidates.append(ocr_colors)
     lac = _lac_raster_separations(words, numbers)
     if lac:
         candidates.append(lac)
@@ -338,7 +349,126 @@ def _separations(words: tuple[WordBox, ...], numbers: tuple[BadgeNumber, ...]) -
         return (len(rows), numbered, colorish)
 
     best = max(candidates, key=_rank)
-    return tuple(_column_then_row(best))
+    return tuple(_column_then_row(_dedupe_color_rows(best)))
+
+
+def _dedupe_color_rows(rows: list[ParsedSeparation]) -> list[ParsedSeparation]:
+    """Usuwa duplikaty tej samej farby (np. P456 z dwóch przebiegów OCR)."""
+
+    best: dict[str, ParsedSeparation] = {}
+    for row in rows:
+        key = re.sub(r"\s+", " ", row.color_name.strip().lower())
+        prev = best.get(key)
+        if prev is None:
+            best[key] = row
+            continue
+        # Preferuj wiersz z pokryciem / numerem stacji.
+        prev_score = (prev.coverage is not None, prev.separation_number is not None, prev.confidence)
+        row_score = (row.coverage is not None, row.separation_number is not None, row.confidence)
+        if row_score > prev_score:
+            best[key] = row
+    return list(best.values())
+
+
+def _ocr_color_coverage_separations(
+    words: tuple[WordBox, ...],
+    numbers: tuple[BadgeNumber, ...] = (),
+) -> list[ParsedSeparation]:
+    """Fallback OCR: ``P193`` / ``Varnish`` + najbliższe ``%`` w prawo (gdy kąt siatki zginął)."""
+
+    paired: list[ParsedSeparation] = []
+    for line in _lines(words):
+        for index, word in enumerate(line):
+            raw = word.text.strip().strip(".,:;|")
+            name = _normalize_ocr_color_token(raw)
+            # Połącz ``P456`` + ``2`` w ``P456 2``.
+            name_words = [word]
+            if (
+                index + 1 < len(line)
+                and re.fullmatch(r"P\d{2,4}", name, re.IGNORECASE)
+                and re.fullmatch(r"\d", line[index + 1].text.strip())
+                and line[index + 1].x0 - word.x1 < 18
+            ):
+                name = f"{name} {line[index + 1].text.strip()}"
+                name_words.append(line[index + 1])
+            if not _OCR_COLOR_TOKEN.fullmatch(name.replace(" ", "")) and not (
+                name.lower() == "varnish" or re.fullmatch(r"P\d{2,4}(?:\s+\d)?", name, re.IGNORECASE)
+            ):
+                continue
+            if not _usable_color_name(name):
+                continue
+            coverage, raw_coverage, screen_words = _coverage_right_of(line, name_words[-1])
+            if coverage is None and not screen_words:
+                # Bez żadnego % — bierz nazwę tylko gdy wygląda na pantone/varnish przy siatce.
+                if not any(_looks_like_screen_token(item.text) for item in line[index + 1 : index + 6]):
+                    continue
+            badge = _number_for(name_words[0], numbers)
+            station, peeled = _peel_station(name_words)
+            paired.append(
+                ParsedSeparation(
+                    color_name=name if not peeled else _join_color_name(peeled) or name,
+                    coverage=coverage,
+                    raw_coverage=raw_coverage,
+                    separation_number=badge if badge is not None else station,
+                    column_x=name_words[0].x0,
+                    row_y=name_words[0].y0,
+                    confidence=_reading_confidence(name_words, screen_words),
+                )
+            )
+    return paired
+
+
+def _looks_like_screen_token(text: str) -> bool:
+    token = text.strip()
+    if "%" in token or "lpi" in token.lower():
+        return True
+    if re.fullmatch(r"\d+(?:[.,]\d+)?", token):
+        return True
+    return token in {"/", "|"}
+
+
+def _coverage_right_of(
+    line: list[WordBox],
+    anchor: WordBox,
+) -> tuple[Decimal | None, str | None, list[WordBox]]:
+    """Szuka pierwszego sensownego ``xx%`` na prawo od nazwy farby (do kolejnej nazwy)."""
+
+    right = [word for word in line if word.x0 >= anchor.x1 - 1]
+    if not right:
+        return None, None, []
+    # Nie przechodź przez kolejny kod farby.
+    limited: list[WordBox] = []
+    for word in right:
+        token = _normalize_ocr_color_token(word.text.strip().strip(".,:;|"))
+        if limited and (
+            _OCR_COLOR_TOKEN.fullmatch(token.replace(" ", ""))
+            or re.fullmatch(r"P\d{2,4}", token, re.IGNORECASE)
+            or token.lower() == "varnish"
+        ):
+            break
+        limited.append(word)
+        if word.x0 - anchor.x1 > 220:
+            break
+    joined = " ".join(word.text.strip() for word in limited)
+    for pattern in (_SCREEN_SEARCH, _SCREEN_SEARCH_LOOSE):
+        match = pattern.search(joined)
+        if match:
+            try:
+                coverage = Decimal(match.group("coverage").replace(",", "."))
+            except InvalidOperation:
+                continue
+            return coverage, f"{match.group('coverage')}%", limited
+    match = re.search(r"(\d+(?:[.,]\d+)?)\s*%", joined)
+    if match:
+        try:
+            coverage = Decimal(match.group(1).replace(",", "."))
+        except InvalidOperation:
+            return None, None, limited
+        # Odrzuć placeholder 0.00% gdy to jedyny sygnał i brak lpi obok.
+        if coverage == 0 and not re.search(r"133|150|126|120", joined):
+            return None, None, limited
+        return coverage, f"{match.group(1)}%", limited
+    return None, None, limited
 
 
 def _esko_separations(words: tuple[WordBox, ...], numbers: tuple[BadgeNumber, ...]) -> list[ParsedSeparation]:
@@ -588,17 +718,32 @@ def _flexmar_station_for(color: WordBox, stations: list[WordBox]) -> str | None:
 
 
 _OCR_VARNISH = re.compile(
-    r"^(?:wamish|yamnish|vamish|varmish|warnish|varnlsh|varnish|lakier)/?$",
+    r"^(?:wamish|yamnish|vamish|varmish|warnish|varnlsh|varnish|yarnish|lakier)/?$",
     re.IGNORECASE,
 )
+_OCR_PANTONE = re.compile(r"^P\s*(\d{2,4})(?:\s*([0-9A-Za-z]))?$", re.IGNORECASE)
+_OCR_GARBAGE = re.compile(r"[^\x20-\x7E]")  # non-ascii w nazwie farby = śmieć OCR
 
 
 def _normalize_ocr_color_token(token: str) -> str:
-    cleaned = token.strip().rstrip("/")
+    cleaned = token.strip().rstrip("/").replace("{", "").replace("}", "")
     if _OCR_VARNISH.fullmatch(cleaned):
         return "Varnish"
     if re.fullmatch(r"[Ff](\d{2,4}[A-Za-z0-9]*)", cleaned):
         return "P" + cleaned[1:]
+    pantone = _OCR_PANTONE.fullmatch(cleaned)
+    if pantone:
+        base = f"P{pantone.group(1)}"
+        suffix = pantone.group(2)
+        if suffix and suffix.isdigit():
+            return f"{base} {suffix}"
+        return base
+    # P4568 / PASS z OCR → spróbuj P456
+    m = re.fullmatch(r"P(\d{3})\d?", cleaned, re.IGNORECASE)
+    if m and cleaned.upper().startswith("P") and len(cleaned) in {5, 6}:
+        # nie tnij prawdziwych kodów 4-cyfrowych bez potrzeby — tylko gdy wygląda na śmieć
+        if cleaned[-1:].isalpha() or cleaned.upper() in {"PASS", "PABE", "PAB6"}:
+            return f"P{m.group(1)}"
     lowered = cleaned.lower()
     if lowered in {"cyen", "cyan"}:
         return "Cyan"
@@ -642,11 +787,16 @@ def _usable_color_name(color_name: str) -> bool:
         return False
     if cleaned.lower() in _NOISE_NAMES:
         return False
+    if _OCR_GARBAGE.search(cleaned) or "?" in cleaned:
+        return False
     if DATE_PATTERN.fullmatch(cleaned) or ORDER_NUMBER_PATTERN.fullmatch(cleaned):
         return False
     if LAC_SCREEN_PATTERN.fullmatch(cleaned) or SCREEN_PATTERN.fullmatch(cleaned):
         return False
     if FLEXMAR_SCREEN_PATTERN.fullmatch(cleaned):
+        return False
+    # Odrzuć typowe śmieci OCR obok siatki (pag?, Con, norm…).
+    if cleaned.lower() in {"pag", "con", "oro", "norm", "sys", "sag", "rr o", "vsrd"}:
         return False
     if _COLORISH_NAME.match(cleaned):
         return True

@@ -31,8 +31,9 @@ def build_engine() -> ExtractorEngine:
         tesseract_cmd=tesseract,
         tessdata_dir=tessdata,
         ocr_languages="eng+pol",
-        ocr_dpi=280,
-        ocr_confidence_threshold=60,
+        ocr_dpi=300,
+        # Skanowane legendy Flexmar mają niski confidence — nie kasuj trafionych farb.
+        ocr_confidence_threshold=35,
     )
     return ExtractorEngine(config=config)
 
