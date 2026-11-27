@@ -33,6 +33,7 @@ class ProductionPlanImportReport:
     comments: int = 0
     by_machine: dict[str, int] = field(default_factory=dict)
     batch_id: int | None = None
+    column_count: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_text(self) -> str:
@@ -45,6 +46,8 @@ class ProductionPlanImportReport:
             f"bez PDF={self.unlinked_pdf}",
             f"pominięte={self.skipped}",
         ]
+        if self.column_count:
+            parts.append(f"kolumny={self.column_count}")
         if self.by_machine:
             dist = ", ".join(f"{k}:{v}" for k, v in sorted(self.by_machine.items()))
             parts.append(f"maszyny[{dist}]")
@@ -127,36 +130,118 @@ def map_workstation(raw: str) -> str | None:
     return None
 
 
-def _header_index(headers: list[Any]) -> dict[str, int]:
-    """Mapuje znormalizowaną nazwę kolumny → pierwszy indeks (duplikaty: pierwszy wygrywa)."""
+def _unique_header_labels(headers: list[Any]) -> list[str]:
+    """Unikalne etykiety — duplikaty ``Opis materiału`` → ``Opis materiału (2)``."""
 
-    out: dict[str, int] = {}
+    seen: dict[str, int] = {}
+    labels: list[str] = []
     for idx, raw in enumerate(headers):
-        key = _norm(raw)
+        base = str(raw).strip() if raw is not None else f"Kolumna {idx + 1}"
+        if not base:
+            base = f"Kolumna {idx + 1}"
+        count = seen.get(base, 0) + 1
+        seen[base] = count
+        labels.append(base if count == 1 else f"{base} ({count})")
+    return labels
+
+
+def _header_index(headers: list[Any]) -> dict[str, int]:
+    """Mapuje znormalizowaną nazwę kolumny → indeks (z obsługą duplikatów)."""
+
+    labels = _unique_header_labels(headers)
+    out: dict[str, int] = {}
+    for idx, label in enumerate(labels):
+        key = _norm(label)
         if key and key not in out:
             out[key] = idx
+        base = _norm(re.sub(r"\s*\(\d+\)$", "", label))
+        if base and base not in out:
+            out[base] = idx
     return out
 
 
+def _serialize_cell(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, time):
+        return value.strftime("%H:%M:%S")
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
 def _row_dict(headers: list[Any], row: tuple[Any, ...]) -> dict[str, Any]:
+    labels = _unique_header_labels(headers)
     data: dict[str, Any] = {}
-    for idx, raw_h in enumerate(headers):
-        key = str(raw_h).strip() if raw_h is not None else f"col_{idx}"
-        # unikaj nadpisania przy zduplikowanym „Opis materiału”
-        if key in data and data[key] not in (None, ""):
-            continue
+    for idx, label in enumerate(labels):
         val = row[idx] if idx < len(row) else None
-        if isinstance(val, datetime):
-            data[key] = val.isoformat(timespec="seconds")
-        elif isinstance(val, date):
-            data[key] = val.isoformat()
-        elif isinstance(val, time):
-            data[key] = val.strftime("%H:%M:%S")
-        elif isinstance(val, float) and val.is_integer():
-            data[key] = int(val)
-        else:
-            data[key] = val
+        data[label] = _serialize_cell(val)
     return data
+
+
+def build_excel_fields(
+    headers: list[Any],
+    row: tuple[Any, ...],
+    *,
+    skip_first: bool = True,
+) -> list[dict[str, Any]]:
+    """Wszystkie kolumny Excela (domyślnie bez pierwszej = stanowisko)."""
+
+    labels = _unique_header_labels(headers)
+    start = 1 if skip_first and labels else 0
+    fields: list[dict[str, Any]] = []
+    for idx in range(start, len(labels)):
+        label = labels[idx]
+        val = row[idx] if idx < len(row) else None
+        fields.append(
+            {
+                "key": _norm(label) or f"col_{idx}",
+                "label": label,
+                "value": _serialize_cell(val),
+            }
+        )
+    return fields
+
+
+def parse_plan_fields(import_meta: str | None) -> list[dict[str, Any]]:
+    """Odczytuje uporządkowane pola z ``import_meta`` (nowy i stary format)."""
+
+    if not import_meta:
+        return []
+    try:
+        data = json.loads(import_meta)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if isinstance(data, dict) and isinstance(data.get("fields"), list):
+        out = []
+        for item in data["fields"]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or item.get("key") or "").strip()
+            if not label or _norm(label) == "stanowisko robocze":
+                continue
+            out.append(
+                {
+                    "key": str(item.get("key") or _norm(label)),
+                    "label": label,
+                    "value": item.get("value"),
+                }
+            )
+        return out
+    if isinstance(data, dict):
+        out = []
+        for label, value in data.items():
+            if _norm(str(label)) == "stanowisko robocze":
+                continue
+            out.append({"key": _norm(label), "label": str(label), "value": value})
+        return out
+    return []
 
 
 def ensure_plan_import_schema(cur, execute=None) -> None:
@@ -199,6 +284,19 @@ def ensure_plan_import_schema(cur, execute=None) -> None:
         ("priority_text", "TEXT"),
         ("foil", "TEXT"),
         ("web", "TEXT"),
+        ("web_stock", "TEXT"),
+        ("print_360", "TEXT"),
+        ("remain_qty", "INTEGER"),
+        ("slit_width", "TEXT"),
+        ("impressions", "TEXT"),
+        ("raw_web_used", "TEXT"),
+        ("diametre_web", "TEXT"),
+        ("wbpr_qty", "TEXT"),
+        ("typ", "TEXT"),
+        ("earliest_mad", "TEXT"),
+        ("customer_name", "TEXT"),
+        ("material_desc_alt", "TEXT"),
+        ("sales_dept", "TEXT"),
         ("color_count_plan", "INTEGER"),
     ]
     if is_postgres():
@@ -263,6 +361,34 @@ def import_production_plan_bytes(
         wb.close()
 
 
+def _extra_field_values(fields: list[dict[str, Any]]) -> dict[str, Any]:
+    """Wyciąga dodatkowe kolumny typed z listy pól Excela."""
+
+    by_key = {f["key"]: f.get("value") for f in fields}
+
+    def g(*keys: str) -> Any:
+        for key in keys:
+            if key in by_key and by_key[key] not in (None, ""):
+                return by_key[key]
+        return None
+
+    return {
+        "web_stock": _cell_str(g("web stock")),
+        "print_360": _cell_str(g("print 360")),
+        "remain_qty": _cell_num(g("remain to produce")),
+        "slit_width": _cell_str(g("slit width")),
+        "impressions": _cell_str(g("no of impressions")),
+        "raw_web_used": _cell_str(g("raw web used")),
+        "diametre_web": _cell_str(g("diametre web")),
+        "wbpr_qty": _cell_str(g("wbpr order qty un")),
+        "typ": _cell_str(g("typ")),
+        "earliest_mad": _cell_str(g("earliest mad")),
+        "customer_name": _cell_str(g("nazwa 1")),
+        "material_desc_alt": _cell_str(g("opis materiału (2)")),
+        "sales_dept": _cell_str(g("dział sprz.")),
+    }
+
+
 def _import_sheet(
     cur,
     headers: list[Any],
@@ -276,6 +402,8 @@ def _import_sheet(
     ensure_plan_import_schema(cur)
     report = ProductionPlanImportReport(sheet=sheet_name)
     idx = _header_index(headers)
+    display_labels = [f["label"] for f in build_excel_fields(headers, tuple(), skip_first=True)]
+    report.column_count = len(display_labels)
 
     cur.execute(
         """
@@ -288,7 +416,6 @@ def _import_sheet(
     report.batch_id = int(batch_id)
 
     if replace_planned:
-        # Tylko planned — nie ruszamy in_progress / completed
         cur.execute("DELETE FROM production_plans WHERE status='planned'")
 
     sort_counters = {m: 0 for m in _ALL_MACHINES}
@@ -310,6 +437,8 @@ def _import_sheet(
             continue
         report.rows_read += 1
         raw = _row_dict(headers, row)
+        fields = build_excel_fields(headers, row, skip_first=True)
+
         def col(*names: str) -> Any:
             for name_key in names:
                 if name_key in idx:
@@ -322,7 +451,6 @@ def _import_sheet(
         order_number = _cell_str(col("zlecenie"))
         artwork = _cell_str(col("artwork number", "artwork"))
 
-        # Wiersz-komentarz (brak stanowiska i zlecenia, jest opis)
         if not workstation and not order_number:
             report.comments += 1
             report.skipped += 1
@@ -341,9 +469,12 @@ def _import_sheet(
         parent = _cell_str(col("parent"))
         lub = _cell_str(col("numer wzorca"))
         if not lub:
-            from services.planner.lub_import import lookup_lub
+            try:
+                from services.planner.lub_import import lookup_lub
 
-            lub = lookup_lub(cur, artwork, order_number) or ""
+                lub = lookup_lub(cur, artwork, order_number) or ""
+            except Exception:  # noqa: BLE001
+                lub = ""
         name = _cell_str(col("opis materiału")) or _cell_str(col("nazwa 1"))
 
         setup_date = col("setup start date")
@@ -372,6 +503,7 @@ def _import_sheet(
         priority = _cell_str(col("priority text"))
         color_count_plan = _cell_num(col("liczba kolorow"))
         laminate = web or foil or None
+        extras = _extra_field_values(fields)
 
         job_id = find_color_job_id(
             cur,
@@ -384,9 +516,16 @@ def _import_sheet(
         else:
             report.unlinked_pdf += 1
 
-        meta_json = json.dumps(raw, ensure_ascii=False, default=str)
+        meta_json = json.dumps(
+            {
+                "fields": fields,
+                "raw": raw,
+                "column_labels": display_labels,
+            },
+            ensure_ascii=False,
+            default=str,
+        )
 
-        # Upsert po machine+order_number dla planned
         cur.execute(
             """
             SELECT id, status FROM production_plans
@@ -401,7 +540,6 @@ def _import_sheet(
             eid = int(existing["id"] if hasattr(existing, "keys") else existing[0])
             estatus = existing["status"] if hasattr(existing, "keys") else existing[1]
             if estatus == "in_progress":
-                # Nie nadpisuj kolejności aktywnego — tylko uzupełnij meta/artwork jeśli puste
                 cur.execute(
                     """
                     UPDATE production_plans SET
@@ -414,16 +552,7 @@ def _import_sheet(
                         color_job_id=COALESCE(?, color_job_id)
                     WHERE id=?
                     """,
-                    (
-                        artwork,
-                        lub,
-                        name,
-                        material,
-                        meta_json,
-                        batch_id,
-                        job_id,
-                        eid,
-                    ),
+                    (artwork, lub, name, material, meta_json, batch_id, job_id, eid),
                 )
             else:
                 cur.execute(
@@ -447,6 +576,19 @@ def _import_sheet(
                         priority_text=?,
                         foil=?,
                         web=?,
+                        web_stock=?,
+                        print_360=?,
+                        remain_qty=?,
+                        slit_width=?,
+                        impressions=?,
+                        raw_web_used=?,
+                        diametre_web=?,
+                        wbpr_qty=?,
+                        typ=?,
+                        earliest_mad=?,
+                        customer_name=?,
+                        material_desc_alt=?,
+                        sales_dept=?,
                         color_count_plan=?
                     WHERE id=?
                     """,
@@ -469,6 +611,19 @@ def _import_sheet(
                         priority or None,
                         foil or None,
                         web or None,
+                        extras["web_stock"] or None,
+                        extras["print_360"] or None,
+                        extras["remain_qty"],
+                        extras["slit_width"] or None,
+                        extras["impressions"] or None,
+                        extras["raw_web_used"] or None,
+                        extras["diametre_web"] or None,
+                        extras["wbpr_qty"] or None,
+                        extras["typ"] or None,
+                        extras["earliest_mad"] or None,
+                        extras["customer_name"] or None,
+                        extras["material_desc_alt"] or None,
+                        extras["sales_dept"] or None,
                         color_count_plan,
                         eid,
                     ),
@@ -486,7 +641,9 @@ def _import_sheet(
                     color_job_id, sort_order,
                     import_meta, material_number, material_status, parent_number,
                     workstation, setup_start, import_batch_id, priority_text, foil, web,
-                    color_count_plan
+                    web_stock, print_360, remain_qty, slit_width, impressions,
+                    raw_web_used, diametre_web, wbpr_qty, typ, earliest_mad,
+                    customer_name, material_desc_alt, sales_dept, color_count_plan
                 ) VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, 'planned',
@@ -494,7 +651,9 @@ def _import_sheet(
                     ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?
                 )
                 """,
                 (
@@ -519,12 +678,38 @@ def _import_sheet(
                     priority or None,
                     foil or None,
                     web or None,
+                    extras["web_stock"] or None,
+                    extras["print_360"] or None,
+                    extras["remain_qty"],
+                    extras["slit_width"] or None,
+                    extras["impressions"] or None,
+                    extras["raw_web_used"] or None,
+                    extras["diametre_web"] or None,
+                    extras["wbpr_qty"] or None,
+                    extras["typ"] or None,
+                    extras["earliest_mad"] or None,
+                    extras["customer_name"] or None,
+                    extras["material_desc_alt"] or None,
+                    extras["sales_dept"] or None,
                     color_count_plan,
                 ),
             )
             report.created += 1
 
         report.by_machine[machine] = report.by_machine.get(machine, 0) + 1
+
+    try:
+        from services.planner.lub_import import link_artworks_to_lub
+        from services.planner.settings import set_planner_setting
+
+        link_artworks_to_lub(cur)
+        set_planner_setting(
+            cur,
+            "plan_excel_columns",
+            json.dumps(display_labels, ensure_ascii=False),
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     summary = report.as_text()
     cur.execute(

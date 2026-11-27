@@ -40,25 +40,85 @@
         .tab-panel { display: none; height: calc(100vh - 78px); min-height: 560px; }
         .tab-panel.active { display: flex; flex-direction: column; gap: .75rem; }
 
-        /* DRUKARNIA: 50/50 */
+        /* DRUKARNIA: pula+matcher u góry, pełny arkusz planu na dole */
         .druk-split {
-            display: grid; grid-template-rows: minmax(240px, 1fr) minmax(260px, 1fr);
+            display: grid; grid-template-rows: minmax(200px, 0.72fr) minmax(320px, 1.28fr);
             gap: .75rem; flex: 1; min-height: 0;
         }
         .druk-top {
             display: grid; grid-template-columns: minmax(280px, 1.05fr) minmax(300px, 1fr);
             gap: .75rem; min-height: 0;
         }
-        .druk-bottom {
-            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: .75rem; min-height: 0;
-        }
+        .druk-bottom { min-height: 0; display: flex; flex-direction: column; gap: .55rem; }
         @media (max-width: 1100px) {
             .druk-top { grid-template-columns: 1fr; }
-            .druk-bottom { grid-template-columns: 1fr; }
             .druk-split { grid-template-rows: auto auto; height: auto; }
             .tab-panel { height: auto; }
         }
+        .plan-board { flex: 1; min-height: 0; }
+        .plan-filters { display:flex; gap:.3rem; flex-wrap:wrap; }
+        .plan-filter {
+            border: 1px solid var(--pulse-border); background:#fff; color: var(--pulse-muted);
+            border-radius: 999px; padding: .15rem .65rem; font-size: .75rem; font-weight: 600; cursor:pointer;
+        }
+        .plan-filter.active { background: var(--pulse-navy); color:#fff; border-color: var(--pulse-navy); }
+        .plan-sheet-wrap { overflow: auto; flex: 1; min-height: 0; max-height: 100%; }
+        table.plan-sheet {
+            border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%;
+            font-size: .72rem; line-height: 1.25;
+        }
+        .plan-sheet th, .plan-sheet td {
+            border-bottom: 1px solid #e6edf5; border-right: 1px solid #eef3f8;
+            padding: .28rem .45rem; white-space: nowrap; vertical-align: middle;
+            max-width: 11.5rem; overflow: hidden; text-overflow: ellipsis;
+        }
+        .plan-sheet thead th {
+            position: sticky; top: 0; z-index: 5; background: #12304a; color:#fff;
+            font-weight: 600; font-size: .68rem; letter-spacing: .01em;
+        }
+        .plan-sheet tbody tr:hover { background: #f3f8fd; }
+        .plan-sheet tbody tr.in-progress { background: #eef8f1; }
+        .plan-sheet tbody tr[data-machine="D6"] td.col-machine { color:#1d4f7a; }
+        .plan-sheet tbody tr[data-machine="D8"] td.col-machine { color:#6b4a16; }
+        .plan-sheet tbody tr[data-machine="D10"] td.col-machine { color:#1f5a3a; }
+        .plan-sheet .sticky-l0, .plan-sheet .sticky-l1, .plan-sheet .sticky-l2 {
+            position: sticky; background: inherit; z-index: 2;
+        }
+        .plan-sheet thead .sticky-l0, .plan-sheet thead .sticky-l1, .plan-sheet thead .sticky-l2,
+        .plan-sheet thead .sticky-r0, .plan-sheet thead .sticky-r1, .plan-sheet thead .sticky-r2 {
+            z-index: 6; background: #12304a;
+        }
+        .plan-sheet .sticky-l0 { left: 0; min-width: 1.6rem; max-width: 1.6rem; }
+        .plan-sheet .sticky-l1 { left: 1.6rem; min-width: 2rem; max-width: 2rem; text-align:center; }
+        .plan-sheet .sticky-l2 { left: 3.6rem; min-width: 3.2rem; max-width: 3.2rem; font-weight: 700; }
+        .plan-sheet .sticky-r2, .plan-sheet .sticky-r1, .plan-sheet .sticky-r0 {
+            position: sticky; background: #fff; z-index: 2;
+        }
+        .plan-sheet tbody tr:hover .sticky-r2,
+        .plan-sheet tbody tr:hover .sticky-r1,
+        .plan-sheet tbody tr:hover .sticky-r0,
+        .plan-sheet tbody tr:hover .sticky-l0,
+        .plan-sheet tbody tr:hover .sticky-l1,
+        .plan-sheet tbody tr:hover .sticky-l2 { background: #f3f8fd; }
+        .plan-sheet tbody tr.in-progress .sticky-r2,
+        .plan-sheet tbody tr.in-progress .sticky-r1,
+        .plan-sheet tbody tr.in-progress .sticky-r0,
+        .plan-sheet tbody tr.in-progress .sticky-l0,
+        .plan-sheet tbody tr.in-progress .sticky-l1,
+        .plan-sheet tbody tr.in-progress .sticky-l2 { background: #eef8f1; }
+        .plan-sheet .sticky-r2 { right: 5.8rem; min-width: 3.2rem; text-align:center; }
+        .plan-sheet .sticky-r1 { right: 2.6rem; min-width: 3.2rem; text-align:center; }
+        .plan-sheet .sticky-r0 { right: 0; min-width: 2.6rem; text-align:center; }
+        .plan-sheet .drag-handle { cursor: grab; color:#8aa0b5; user-select:none; }
+        .plan-sheet tr.plan-hidden { display: none; }
+        .plan-co-row td {
+            background: #f7fafc; color: var(--pulse-muted); font-size: .65rem;
+            border-bottom: 1px dashed #d7e1ec; padding: .15rem .45rem;
+        }
+        .draft-strip {
+            display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.5rem;
+        }
+        @media (max-width: 1100px) { .draft-strip { grid-template-columns: 1fr; } }
 
         .panel {
             background: var(--pulse-surface); border: 1px solid var(--pulse-border);
@@ -279,13 +339,13 @@
                     <button class="btn btn-sm btn-success" type="submit" title="Upload PDF"><i class="fas fa-upload"></i></button>
                 </form>
                 <form method="post" action="/planista/import-excel" enctype="multipart/form-data" class="d-flex gap-1 align-items-center flex-wrap js-ingest-form"
-                      data-ingest-msg="Importuję Excel…"
-                      title="Excel: plan produkcyjny (Stanowisko/Zlecenie/Artwork), katalog farb ORDER_COLORS lub prosty draft">
+                      data-ingest-msg="Importuję plan Excel (wszystkie kolumny)…"
+                      title="Excel planu ERP: 1. kolumna = maszyna, pozostałe kolumny trafiają do arkusza planu">
                     <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="max-width:180px" required>
                     <label class="small text-nowrap mb-0 opacity-75" title="Usuwa tylko status planned przed importem planu ERP">
                         <input type="checkbox" name="replace_planned" value="1" class="form-check-input me-1"> Zastąp planned
                     </label>
-                    <button class="btn btn-sm btn-primary" type="submit" title="Import Excel"><i class="fas fa-file-excel"></i> Excel</button>
+                    <button class="btn btn-sm btn-primary" type="submit" title="Import planu Excel"><i class="fas fa-file-excel"></i> Excel</button>
                 </form>
                 <form method="post" action="/planista/scan" class="d-inline js-ingest-form" data-ingest-msg="Skanuję folder PDF i odświeżam ekstrakcje…">
                     <input type="hidden" name="folder" id="planistaScanFolder" value="{{ settings.planner_pdf_root }}">
@@ -368,9 +428,6 @@
                                     <span class="match-badge band-low">&lt;40%</span> niskie
                                 </div>
                             </div>
-                            <div class="small text-muted" id="liveQueuesStatus">
-                                <span class="live-dot"></span> Live…
-                            </div>
                         </div>
                         <div class="panel-b">
                             <div id="assistantEmpty" class="matcher-empty">
@@ -395,132 +452,162 @@
                     </div>
                 </div>
 
-                <!-- KOLEJKI D6 D8 D10 -->
+                <!-- PLAN PRODUKCYJNY — pełny arkusz kolumn z Excela -->
                 <div class="druk-bottom">
-                    {% for m in machines %}
-                    {% set st = queue_stats.get(m, {}) %}
-                    <div class="panel machine-col track" data-machine="{{ m }}">
+                    <div class="panel plan-board">
                         <div class="panel-h">
                             <div>
-                                <h2><i class="fas fa-industry me-1"></i> {{ m }}</h2>
-                                <div class="meta">
-                                    {{ st.get('count', 0) }} prac · {{ st.get('colors_total', 0) }} kol. ·
-                                    prep {{ st.get('prep_pct', 0) }}%
-                                    (F {{ st.get('farby_ready', 0) }}/{{ st.get('count', 0) }},
-                                    P {{ st.get('polimery_ready', 0) }}/{{ st.get('count', 0) }})
+                                <h2><i class="fas fa-table me-1"></i> Plan produkcyjny</h2>
+                                <div class="small text-muted" id="planBoardMeta">
+                                    Wszystkie kolumny z Excela (bez stanowiska — to filtr maszyn). Przeciągnij wiersz, aby zmienić kolejność.
                                 </div>
                             </div>
-                            {% if loop.first %}
-                            <form method="post" action="/planista/publish" class="m-0">
-                                <input type="hidden" name="draft_id" value="{{ draft_id }}">
-                                <button class="btn btn-primary btn-sm" type="submit"
-                                        onclick="return confirm('Opublikować draft (merge z istniejącymi planami)?')">
-                                    <i class="fas fa-cloud-upload-alt"></i> Publikuj
-                                </button>
-                            </form>
-                            {% endif %}
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <div class="plan-filters" id="planFilters" role="tablist">
+                                    <button type="button" class="plan-filter active" data-plan-filter="all">Wszystkie</button>
+                                    {% for m in machines %}
+                                    {% set st = queue_stats.get(m, {}) %}
+                                    <button type="button" class="plan-filter" data-plan-filter="{{ m }}">
+                                        {{ m }} <span class="opacity-75">({{ st.get('count', 0) }})</span>
+                                    </button>
+                                    {% endfor %}
+                                </div>
+                                <span class="small text-muted" id="liveQueuesStatus"><span class="live-dot"></span> Live…</span>
+                                <form method="post" action="/planista/publish" class="m-0">
+                                    <input type="hidden" name="draft_id" value="{{ draft_id }}">
+                                    <button class="btn btn-primary btn-sm" type="submit"
+                                            onclick="return confirm('Opublikować draft (merge z istniejącymi planami)?')">
+                                        <i class="fas fa-cloud-upload-alt"></i> Publikuj
+                                    </button>
+                                </form>
+                            </div>
                         </div>
-                        <div class="panel-b">
-                            <div class="small text-muted mb-1">Live · przeciągnij / upuść z puli</div>
-                            <div class="live-queue-list" data-machine="{{ m }}" data-scope="live" id="live-{{ m }}">
-                                {% set rows = queues.get(m, []) %}
-                                {% set cos = changeovers.get(m, []) %}
-                                {% if rows %}
-                                {% for row in rows %}
-                                {% set pos = loop.index %}
-                                <div class="q-row {% if row.status == 'in_progress' %}in-progress{% endif %}"
-                                     data-plan-id="{{ row.id }}"
-                                     data-machine="{{ m }}"
-                                     data-status="{{ row.status }}"
-                                     data-color-job-id="{{ row.color_job_id or '' }}"
-                                     data-order-number="{{ row.order_number or '' }}"
-                                     data-colors='{{ (row.colors or [])|tojson }}'
-                                     {% if row.status != 'in_progress' %}draggable="true"{% endif %}>
-                                    <div class="q-pos">{{ pos }}</div>
-                                    <div class="thumb-wrap">
-                                    {% if row.thumbnail_path %}
-                                    <img class="q-thumb" src="{{ row.thumbnail_path }}" alt="">
-                                    <button type="button" class="btn-thumb-expand" data-lightbox="{{ row.thumbnail_path }}" title="Powiększ">⤢</button>
-                                    {% else %}
-                                    <div class="q-thumb-empty"><i class="fas fa-file-pdf"></i></div>
-                                    {% endif %}
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div class="fw-semibold text-truncate">{{ row.order_number }} <span class="fw-normal opacity-75">· {{ row.status }}</span></div>
-                                        <div class="text-truncate opacity-75">{{ row.order_name or '' }}</div>
-                                        <div>
-                                            <span class="prep-pill">{{ row.color_count or 0 }} kol.</span>
-                                            <span class="prep-pill {% if row.farby_prep_status == 'ready' %}ready{% endif %}">F</span>
-                                            <span class="prep-pill {% if row.polimery_prep_status == 'ready' %}ready{% endif %}">P</span>
-                                        </div>
-                                    </div>
-                                    <div class="text-end">
-                                        <div class="match-slot" data-match-slot></div>
-                                        {% if row.status != 'in_progress' %}
-                                        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-restore-pool"
-                                                title="Przywróć do puli (hasło)"
-                                                data-plan-id="{{ row.id }}"
-                                                data-job-id="{{ row.color_job_id or '' }}"
-                                                data-label="{{ row.order_number or row.id }}">↩</button>
+                        <div class="panel-b p-0 d-flex flex-column" style="min-height:0">
+                            <div class="plan-sheet-wrap">
+                                <table class="plan-sheet" id="planSheet">
+                                    <thead>
+                                        <tr>
+                                            <th class="sticky-l0" title="Przeciągnij"></th>
+                                            <th class="sticky-l1">#</th>
+                                            <th class="sticky-l2">Masz.</th>
+                                            {% for col in plan_columns %}
+                                            <th title="{{ col }}">{{ col }}</th>
+                                            {% endfor %}
+                                            <th class="sticky-r2">Kol.</th>
+                                            <th class="sticky-r1">Prep</th>
+                                            <th class="sticky-r0"></th>
+                                        </tr>
+                                    </thead>
+                                    {% for m in machines %}
+                                    {% set rows = queues.get(m, []) %}
+                                    {% set cos = changeovers.get(m, []) %}
+                                    <tbody class="live-queue-list track" data-machine="{{ m }}" data-scope="live" id="live-{{ m }}">
+                                        {% if rows %}
+                                        {% for row in rows %}
+                                        <tr class="q-row {% if row.status == 'in_progress' %}in-progress{% endif %}"
+                                            data-plan-id="{{ row.id }}"
+                                            data-machine="{{ m }}"
+                                            data-status="{{ row.status }}"
+                                            data-color-job-id="{{ row.color_job_id or '' }}"
+                                            data-order-number="{{ row.order_number or '' }}"
+                                            data-colors='{{ (row.colors or [])|tojson }}'
+                                            {% if row.status != 'in_progress' %}draggable="true"{% endif %}>
+                                            <td class="sticky-l0"><span class="drag-handle" title="Przeciągnij">⠿</span></td>
+                                            <td class="sticky-l1">{{ loop.index }}</td>
+                                            <td class="sticky-l2 col-machine">{{ m }}</td>
+                                            {% for col in plan_columns %}
+                                            {% set cell = (row.excel_map or {}).get(col) %}
+                                            <td title="{{ cell if cell is not none else '' }}">{% if cell is none or cell == '' %}—{% else %}{{ cell }}{% endif %}</td>
+                                            {% endfor %}
+                                            <td class="sticky-r2">
+                                                <span class="prep-pill">{{ row.color_count or 0 }}</span>
+                                                <div class="match-slot mt-1" data-match-slot></div>
+                                            </td>
+                                            <td class="sticky-r1">
+                                                <span class="prep-pill {% if row.farby_prep_status == 'ready' %}ready{% endif %}">F</span>
+                                                <span class="prep-pill {% if row.polimery_prep_status == 'ready' %}ready{% endif %}">P</span>
+                                            </td>
+                                            <td class="sticky-r0">
+                                                {% if row.status != 'in_progress' %}
+                                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-restore-pool"
+                                                        title="Przywróć do puli (hasło)"
+                                                        data-plan-id="{{ row.id }}"
+                                                        data-job-id="{{ row.color_job_id or '' }}"
+                                                        data-label="{{ row.order_number or row.id }}">↩</button>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% if not loop.last %}
+                                        {% set co = cos[loop.index0] if loop.index0 < cos|length else none %}
+                                        <tr class="plan-co-row" data-changeover data-from="{{ row.id }}" data-machine="{{ m }}">
+                                            <td colspan="{{ 3 + (plan_columns|length) + 3 }}">
+                                                {% if co and co.ok %}
+                                                ↓ {{ co.shared_count }} wspólnych · {{ co.add_count }} do zmiany
+                                                <button type="button" class="btn btn-link btn-sm py-0 px-1" data-toggle-co>szczegóły</button>
+                                                <span class="changeover-details" data-co-details style="display:none">
+                                                    Wspólne: {{ (co.shared or [])|join(', ') or '—' }} ·
+                                                    Schodzące: {{ (co.only_prev or [])|join(', ') or '—' }} ·
+                                                    Do dodania: {{ (co.only_next or [])|join(', ') or '—' }}
+                                                </span>
+                                                {% else %}
+                                                ↓ {{ (co.message if co else 'Brak danych kolorystycznych') }}
+                                                {% endif %}
+                                            </td>
+                                        </tr>
                                         {% endif %}
-                                    </div>
+                                        {% endfor %}
+                                        {% else %}
+                                        <tr class="live-empty-row" data-machine="{{ m }}"><td colspan="{{ 3 + (plan_columns|length) + 3 }}" class="text-muted">Brak aktywnych zleceń na {{ m }}</td></tr>
+                                        {% endif %}
+                                    </tbody>
+                                    {% endfor %}
+                                </table>
+                                {% if not plan_columns %}
+                                <div class="p-3 small text-muted" id="planColumnsHint">
+                                    Zaimportuj Excel planu (przycisk Excel powyżej), aby zobaczyć wszystkie kolumny ERP.
                                 </div>
-                                {% if not loop.last %}
-                                {% set co = cos[loop.index0] if loop.index0 < cos|length else none %}
-                                <div class="changeover" data-changeover data-from="{{ row.id }}" data-to="{{ rows[loop.index].id if loop.index < rows|length else '' }}">
-                                    {% if co and co.ok %}
-                                    ↓ {{ co.shared_count }} pozostaje | {{ co.add_count }} do zmiany
-                                    <button type="button" data-toggle-co>szczegóły</button>
-                                    <div class="changeover-details" data-co-details>
-                                        <div><strong>Wspólne</strong>: {{ (co.shared or [])|join(', ') or '—' }}</div>
-                                        <div><strong>Schodzące</strong>: {{ (co.only_prev or [])|join(', ') or '—' }}</div>
-                                        <div><strong>Do dodania</strong>: {{ (co.only_next or [])|join(', ') or '—' }}</div>
-                                    </div>
-                                    {% else %}
-                                    ↓ {{ (co.message if co else 'Brak danych kolorystycznych') }}
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                                {% endfor %}
-                                {% else %}
-                                <div class="small text-muted live-empty">Brak aktywnych zleceń</div>
                                 {% endif %}
                             </div>
-                            <div class="small text-muted mt-2 mb-1">Draft #{{ draft_id }}</div>
-                            <div class="draft-list" data-machine="{{ m }}" data-scope="draft">
-                                {% for item in draft_items.get(m, []) %}
-                                <div class="draft-item" data-item-id="{{ item.id }}" data-job-id="{{ item.color_job_id or '' }}"
-                                     data-order-number="{{ item.order_number or '' }}"
-                                     data-colors='{{ (item.colors or [])|tojson }}' draggable="true">
-                                    <div class="draft-item-head">
-                                        <div class="d-flex gap-2 align-items-center min-w-0">
-                                            {% if item.thumbnail_path %}
-                                            <div class="thumb-wrap"><img class="q-thumb" src="{{ item.thumbnail_path }}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="{{ item.thumbnail_path }}" title="Powiększ">⤢</button></div>
-                                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="draft-strip">
+                        {% for m in machines %}
+                        <div class="panel machine-col" data-machine="{{ m }}" style="max-height:160px">
+                            <div class="panel-h py-1">
+                                <h2 class="mb-0" style="font-size:.85rem">Draft {{ m }}</h2>
+                            </div>
+                            <div class="panel-b py-1">
+                                <div class="draft-list" data-machine="{{ m }}" data-scope="draft">
+                                    {% for item in draft_items.get(m, []) %}
+                                    <div class="draft-item" data-item-id="{{ item.id }}" data-job-id="{{ item.color_job_id or '' }}"
+                                         data-order-number="{{ item.order_number or '' }}"
+                                         data-colors='{{ (item.colors or [])|tojson }}' draggable="true">
+                                        <div class="draft-item-head">
                                             <div class="min-w-0">
                                                 <strong>{{ item.order_number }}</strong>
                                                 <div class="small text-truncate">{{ item.order_name or '' }}</div>
                                             </div>
+                                            <div class="d-flex align-items-start gap-1">
+                                                <div class="match-slot" data-match-slot></div>
+                                                <button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
+                                                        title="Przywróć do puli (hasło)"
+                                                        data-item-id="{{ item.id }}"
+                                                        data-job-id="{{ item.color_job_id or '' }}"
+                                                        data-label="{{ item.order_number or item.id }}">↩</button>
+                                            </div>
                                         </div>
-                                        <div class="d-flex align-items-start gap-1">
-                                            <div class="match-slot" data-match-slot></div>
-                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
-                                                    title="Przywróć do puli (hasło)"
-                                                    data-item-id="{{ item.id }}"
-                                                    data-job-id="{{ item.color_job_id or '' }}"
-                                                    data-label="{{ item.order_number or item.id }}">↩</button>
-                                        </div>
+                                        <div class="match-details" data-match-details></div>
                                     </div>
-                                    <div class="match-details" data-match-details></div>
+                                    {% endfor %}
                                 </div>
-                                {% endfor %}
-                            </div>
-                            <div class="small text-muted draft-hint {% if draft_items.get(m) %}d-none{% endif %}" data-machine-hint="{{ m }}">
-                                Upuść pracę lub +{{ m }}
+                                <div class="small text-muted draft-hint {% if draft_items.get(m) %}d-none{% endif %}" data-machine-hint="{{ m }}">
+                                    Upuść pracę lub +{{ m }}
+                                </div>
                             </div>
                         </div>
+                        {% endfor %}
                     </div>
-                    {% endfor %}
                 </div>
             </div>
         </section>
@@ -664,6 +751,8 @@
 <script>
 (function () {
   const machines = {{ machines|tojson }};
+  let planColumns = {{ (plan_columns or [])|tojson }};
+  let planFilter = 'all';
   const pool = document.getElementById('jobPool');
   const poolEmpty = document.getElementById('poolEmpty');
   const poolCount = document.getElementById('poolCount');
@@ -967,83 +1056,132 @@
     });
   }
 
-  function changeoverHtml(co) {
-    if (!co) return '<div class="changeover">↓ brak danych</div>';
-    if (!co.ok) return `<div class="changeover">↓ ${escapeHtml(co.message || 'Brak danych')}</div>`;
-    return `<div class="changeover">
-      ↓ ${co.shared_count} pozostaje | ${co.add_count} do zmiany
-      <button type="button" data-toggle-co>szczegóły</button>
-      <div class="changeover-details" data-co-details>
-        <div><strong>Wspólne</strong>: ${escapeHtml((co.shared || []).join(', ') || '—')}</div>
-        <div><strong>Schodzące</strong>: ${escapeHtml((co.only_prev || []).join(', ') || '—')}</div>
-        <div><strong>Do dodania</strong>: ${escapeHtml((co.only_next || []).join(', ') || '—')}</div>
-      </div>
-    </div>`;
+  function fmtCell(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    return escapeHtml(value);
+  }
+
+  function syncPlanHeader(columns) {
+    if (Array.isArray(columns) && columns.length) planColumns = columns;
+    const thead = document.querySelector('#planSheet thead tr');
+    if (!thead) return;
+    let html = `<th class="sticky-l0" title="Przeciągnij"></th><th class="sticky-l1">#</th><th class="sticky-l2">Masz.</th>`;
+    planColumns.forEach(col => { html += `<th title="${escapeHtml(col)}">${escapeHtml(col)}</th>`; });
+    html += `<th class="sticky-r2">Kol.</th><th class="sticky-r1">Prep</th><th class="sticky-r0"></th>`;
+    thead.innerHTML = html;
+    const hint = document.getElementById('planColumnsHint');
+    if (hint) hint.style.display = planColumns.length ? 'none' : '';
+  }
+
+  function changeoverHtml(co, machine) {
+    const span = 3 + planColumns.length + 3;
+    if (!co) {
+      return `<tr class="plan-co-row" data-changeover data-machine="${escapeHtml(machine || '')}"><td colspan="${span}">↓ brak danych</td></tr>`;
+    }
+    if (!co.ok) {
+      return `<tr class="plan-co-row" data-changeover data-machine="${escapeHtml(machine || '')}"><td colspan="${span}">↓ ${escapeHtml(co.message || 'Brak danych')}</td></tr>`;
+    }
+    return `<tr class="plan-co-row" data-changeover data-machine="${escapeHtml(machine || '')}">
+      <td colspan="${span}">
+        ↓ ${co.shared_count} wspólnych · ${co.add_count} do zmiany
+        <button type="button" class="btn btn-link btn-sm py-0 px-1" data-toggle-co>szczegóły</button>
+        <span class="changeover-details" data-co-details style="display:none">
+          Wspólne: ${escapeHtml((co.shared || []).join(', ') || '—')} ·
+          Schodzące: ${escapeHtml((co.only_prev || []).join(', ') || '—')} ·
+          Do dodania: ${escapeHtml((co.only_next || []).join(', ') || '—')}
+        </span>
+      </td>
+    </tr>`;
   }
 
   function liveRowHtml(row, pos) {
     const active = row.status === 'in_progress';
-    const isAnchor = matchSource?.kind === 'live' && String(matchSource.planId) === String(row.id);
-    return `<div class="q-row ${active ? 'in-progress' : ''} ${isAnchor ? 'match-anchor' : ''}"
-         data-plan-id="${row.id}" data-machine="${escapeHtml(row.machine || '')}"
+    const machine = row.machine || '';
+    const map = row.excel_map || {};
+    const cells = planColumns.map(col => {
+      const val = map[col];
+      return `<td title="${escapeHtml(val ?? '')}">${fmtCell(val)}</td>`;
+    }).join('');
+    return `<tr class="q-row ${active ? 'in-progress' : ''}"
+         data-plan-id="${row.id}" data-machine="${escapeHtml(machine)}"
          data-status="${escapeHtml(row.status || '')}"
          data-color-job-id="${row.color_job_id == null ? '' : row.color_job_id}"
          data-order-number="${escapeHtml(row.order_number || '')}"
          data-colors='${escapeHtml(JSON.stringify(row.colors || []))}'
          ${active ? '' : 'draggable="true"'}>
-      <div class="q-pos">${pos}</div>
-      ${row.thumbnail_path
-        ? `<div class="thumb-wrap"><img class="q-thumb" src="${escapeHtml(row.thumbnail_path)}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="${escapeHtml(row.thumbnail_path)}" title="Powiększ">⤢</button></div>`
-        : `<div class="q-thumb-empty"><i class="fas fa-file-pdf"></i></div>`}
-      <div class="min-w-0">
-        <div class="fw-semibold text-truncate">${escapeHtml(row.order_number || '—')} <span class="fw-normal opacity-75">· ${escapeHtml(row.status || '')}</span></div>
-        <div class="text-truncate opacity-75">${escapeHtml(row.order_name || '')}</div>
-        <div>
-          <span class="prep-pill">${row.color_count || 0} kol.</span>
-          ${prepPill('F', row.farby_prep_status === 'ready')}
-          ${prepPill('P', row.polimery_prep_status === 'ready')}
-        </div>
-      </div>
-      <div class="text-end">
-        <div class="match-slot" data-match-slot></div>
+      <td class="sticky-l0"><span class="drag-handle" title="Przeciągnij">⠿</span></td>
+      <td class="sticky-l1">${pos}</td>
+      <td class="sticky-l2 col-machine">${escapeHtml(machine)}</td>
+      ${cells}
+      <td class="sticky-r2">
+        <span class="prep-pill">${row.color_count || 0}</span>
+        <div class="match-slot mt-1" data-match-slot></div>
+      </td>
+      <td class="sticky-r1">
+        ${prepPill('F', row.farby_prep_status === 'ready')}
+        ${prepPill('P', row.polimery_prep_status === 'ready')}
+      </td>
+      <td class="sticky-r0">
         ${active ? '' : `<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-restore-pool"
             title="Przywróć do puli (hasło)" data-plan-id="${row.id}"
             data-job-id="${row.color_job_id == null ? '' : row.color_job_id}"
             data-label="${escapeHtml(row.order_number || row.id)}">↩</button>`}
-      </div>
-    </div>`;
+      </td>
+    </tr>`;
   }
 
-  function updateMachineHeader(machine, stats) {
-    const panel = document.querySelector(`.track[data-machine="${machine}"] .panel-h .meta`);
-    if (!panel || !stats) return;
-    panel.textContent =
-      `${stats.count || 0} prac · ${stats.colors_total || 0} kol. · prep ${stats.prep_pct || 0}% ` +
-      `(F ${stats.farby_ready || 0}/${stats.count || 0}, P ${stats.polimery_ready || 0}/${stats.count || 0})`;
+  function updateMachineFilterCounts(stats) {
+    document.querySelectorAll('[data-plan-filter]').forEach(btn => {
+      const key = btn.dataset.planFilter;
+      if (key === 'all') return;
+      const st = stats?.[key];
+      btn.innerHTML = `${escapeHtml(key)} <span class="opacity-75">(${st?.count || 0})</span>`;
+    });
+  }
+
+  function applyPlanFilter() {
+    document.querySelectorAll('#planSheet tbody').forEach(tbody => {
+      const m = tbody.dataset.machine;
+      const show = planFilter === 'all' || planFilter === m;
+      tbody.style.display = show ? '' : 'none';
+    });
+    document.querySelectorAll('[data-plan-filter]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.planFilter === planFilter);
+    });
   }
 
   function renderLiveQueues(payload) {
+    if (payload.columns) syncPlanHeader(payload.columns);
+    updateMachineFilterCounts(payload.stats || {});
     machines.forEach(m => {
       const list = document.querySelector(`.live-queue-list[data-machine="${m}"]`);
       if (!list) return;
       const rows = payload.machines?.[m] || [];
       const cos = payload.changeovers?.[m] || [];
-      updateMachineHeader(m, payload.stats?.[m]);
       list.dataset.sortBound = '0';
+      const span = 3 + planColumns.length + 3;
       if (!rows.length) {
-        list.innerHTML = '<div class="small text-muted live-empty">Brak aktywnych zleceń</div>';
+        list.innerHTML = `<tr class="live-empty-row" data-machine="${escapeHtml(m)}"><td colspan="${span}" class="text-muted">Brak aktywnych zleceń na ${escapeHtml(m)}</td></tr>`;
       } else {
         let html = '';
         rows.forEach((row, idx) => {
           html += liveRowHtml(row, idx + 1);
-          if (idx < rows.length - 1) html += changeoverHtml(cos[idx]);
+          if (idx < rows.length - 1) html += changeoverHtml(cos[idx], m);
         });
         list.innerHTML = html;
       }
       bindSortableList(list);
     });
+    applyPlanFilter();
     if (matchSource) reloadActiveMatch();
   }
+
+  document.getElementById('planFilters')?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-plan-filter]');
+    if (!btn) return;
+    planFilter = btn.dataset.planFilter || 'all';
+    applyPlanFilter();
+  });
 
   function setLiveStatus(ok, text) {
     if (!els.liveStatus) return;
@@ -1347,9 +1485,14 @@
     }
     const coBtn = e.target.closest('[data-toggle-co]');
     if (coBtn) {
-      const box = coBtn.closest('.changeover')?.querySelector('[data-co-details]');
-      box?.classList.toggle('open');
-      coBtn.textContent = box?.classList.contains('open') ? 'ukryj' : 'szczegóły';
+      const host = coBtn.closest('.changeover, .plan-co-row');
+      const box = host?.querySelector('[data-co-details]');
+      if (box) {
+        const willOpen = getComputedStyle(box).display === 'none';
+        box.style.display = willOpen ? '' : 'none';
+        box.classList.toggle('open', willOpen);
+        coBtn.textContent = willOpen ? 'ukryj' : 'szczegóły';
+      }
       return;
     }
     const draft = e.target.closest('.draft-item');

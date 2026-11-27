@@ -141,9 +141,7 @@ def load_machine_queues_ordered(cur) -> dict[str, list]:
     queues: dict[str, list] = {m: [] for m in PRODUCTION_MACHINES}
     cur.execute(
         """
-        SELECT id, machine, order_number, artwork_number, lub_number, order_name,
-               status, color_job_id, sort_order,
-               farby_prep_status, polimery_prep_status, assortment_prep_status
+        SELECT *
         FROM production_plans
         WHERE status IN ('planned', 'in_progress')
         ORDER BY CASE WHEN status='in_progress' THEN 0 ELSE 1 END, sort_order, id

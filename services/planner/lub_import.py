@@ -290,6 +290,7 @@ def import_lub_wykaz_bytes(
 def lookup_lub(cur, *candidates: str | None) -> str | None:
     """Szuka LUB po numerze artwork / zlecenia."""
 
+    ensure_lub_schema(cur)
     keys: list[str] = []
     seen: set[str] = set()
     for raw in candidates:

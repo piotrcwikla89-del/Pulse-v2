@@ -398,6 +398,7 @@ def planista_panel(
             "selected_job": selected_job,
             "success": success,
             "error": error,
+            "plan_columns": _plan_column_labels(cur, queues),
         },
     )
 
@@ -920,8 +921,11 @@ def _job_meta_for_plan(cur, plan_row, cache: dict) -> tuple[int | None, list[str
 
 
 def _serialize_live_plan(row, *, colors=None, thumbnail_path="", color_count=0, color_job_id=None) -> dict:
+    from services.planner.plan_excel import parse_plan_fields
+
     cj = color_job_id if color_job_id is not None else _row_get(row, "color_job_id")
     cols = list(colors or [])
+    excel_fields = parse_plan_fields(_row_get(row, "import_meta"))
     return {
         "id": int(_row_get(row, "id", 0)),
         "plan_id": int(_row_get(row, "id", 0)),
@@ -939,6 +943,17 @@ def _serialize_live_plan(row, *, colors=None, thumbnail_path="", color_count=0, 
         "colors": cols,
         "color_count": int(color_count or len(unique_color_map(cols))),
         "thumbnail_path": thumbnail_path or "",
+        "excel_fields": excel_fields,
+        "excel_map": {str(f.get("label")): f.get("value") for f in excel_fields},
+        "material_number": _row_get(row, "material_number") or "",
+        "material_status": _row_get(row, "material_status") or "",
+        "priority_text": _row_get(row, "priority_text") or "",
+        "meters": _row_get(row, "meters"),
+        "pieces": _row_get(row, "pieces"),
+        "planned_date": _row_get(row, "planned_date") or "",
+        "setup_start": _row_get(row, "setup_start") or "",
+        "typ": _row_get(row, "typ") or "",
+        "customer_name": _row_get(row, "customer_name") or "",
     }
 
 
@@ -1027,6 +1042,30 @@ def _load_history(cur) -> dict:
     return {"publishes": publishes, "drafts": drafts}
 
 
+def _plan_column_labels(cur, queues: dict[str, list] | None = None) -> list[str]:
+    """Nagłówki kolumn Excela (bez stanowiska) — z ustawień lub z pierwszego planu."""
+
+    import json
+
+    from services.planner.settings import get_planner_setting
+
+    raw = get_planner_setting(cur, "plan_excel_columns") or ""
+    if raw:
+        try:
+            labels = json.loads(raw)
+            if isinstance(labels, list) and labels:
+                return [str(x) for x in labels]
+        except json.JSONDecodeError:
+            pass
+    if queues:
+        for rows in queues.values():
+            for row in rows:
+                fields = row.get("excel_fields") if isinstance(row, dict) else None
+                if fields:
+                    return [f.get("label") or f.get("key") for f in fields if f.get("label") or f.get("key")]
+    return []
+
+
 @router.get("/api/live-queues")
 def planista_api_live_queues(
     user=Depends(require_planista_or_above),
@@ -1043,6 +1082,7 @@ def planista_api_live_queues(
         "machines": queues,
         "changeovers": changeovers,
         "stats": stats,
+        "columns": _plan_column_labels(cur, queues),
     }
     return JSONResponse(payload)
 

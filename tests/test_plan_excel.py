@@ -199,9 +199,39 @@ def test_import_production_plan_links_and_stores_meta():
     assert str(row["artwork_number"]) == "1570599"
     assert str(row["lub_number"]) == "LUB4250"
     assert int(row["color_job_id"]) == 1
-    assert row["import_meta"] and "Stanowisko robocze" in row["import_meta"]
+    assert row["import_meta"] and '"fields"' in row["import_meta"]
+    assert "Stanowisko robocze" not in __import__("json").loads(row["import_meta"])["fields"][0]["label"]
+    meta = __import__("json").loads(row["import_meta"])
+    labels = [f["label"] for f in meta["fields"]]
+    assert "Setup Start date" in labels
+    assert "Artwork Number" in labels
+    assert "Opis materiału (2)" in labels
     assert str(row["material_number"]) == "1570829"
     assert str(row["priority_text"]) == "HIGH"
+    assert str(row["customer_name"] or "") == "CONTINENTE"
     batch = cur.execute("SELECT * FROM plan_import_batches").fetchone()
     assert batch is not None
+    conn.close()
+
+
+def test_import_planytest_file_all_columns():
+    sample = Path("/home/ubuntu/.cursor/projects/agent-repos-tmp-3c690c477a0f5b2f/uploads/planytest_0a95.xlsx")
+    if not sample.is_file():
+        return
+    conn = _db()
+    cur = conn.cursor()
+    # system_settings for column labels / lub link
+    cur.execute("CREATE TABLE system_settings (key TEXT PRIMARY KEY, value TEXT)")
+    report = import_production_plan_bytes(
+        cur, sample.read_bytes(), filename="planytest.xlsx", imported_by="tester", replace_planned=True
+    )
+    assert report.created >= 100
+    assert report.column_count >= 27  # all except workstation
+    row = cur.execute(
+        "SELECT import_meta, machine FROM production_plans WHERE machine='D6' LIMIT 1"
+    ).fetchone()
+    assert row is not None
+    meta = __import__("json").loads(row["import_meta"])
+    assert len(meta["fields"]) >= 27
+    assert all(f["label"].lower() != "stanowisko robocze" for f in meta["fields"])
     conn.close()
