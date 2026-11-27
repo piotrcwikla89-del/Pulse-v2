@@ -5,8 +5,10 @@ import csv
 import io
 from collections import defaultdict
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Form, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from starlette.requests import Request
 
 from dependencies import get_db, is_ajax, require_auth, require_manager_or_admin
@@ -903,6 +905,7 @@ def maszyna_job(
     status: str = Query(""),
     message: str = Query(""),
     finalize: str = Query(""),
+    open_pdf: str = Query(""),
     conn=Depends(get_db),
 ):
     if user["role"] == "drukarz" and request.session.get("machine") != machine.upper():
@@ -938,6 +941,9 @@ def maszyna_job(
     prep_ready = plan["farby_prep_status"] == "ready" and plan["polimery_prep_status"] == "ready"
     active_job = plan["status"] == "in_progress"
     completed_job = plan["status"] == "completed"
+    from services.planner.pdf_resolve import resolve_plan_pdf
+
+    artwork_pdf = resolve_plan_pdf(cur, plan)
     return render_template("maszyna_job.html", {
         "machine": machine.upper(),
         "plan": plan,
@@ -950,10 +956,123 @@ def maszyna_job(
         "active_job": active_job,
         "completed_job": completed_job,
         "auto_open_final_report": finalize == "1" and active_job,
+        "artwork_pdf": artwork_pdf,
+        "auto_open_pdf": str(open_pdf).lower() in ("1", "true", "yes"),
         "user": {"username": user["username"], "role": user["role"]},
         "status": status,
         "message": message,
     })
+
+
+def _maszyna_plan_pdf_meta(cur, machine: str, plan_id: int):
+    cur.execute("SELECT * FROM production_plans WHERE id=? AND machine=?", (plan_id, machine.upper()))
+    plan = cur.fetchone()
+    if not plan:
+        return None, None
+    from services.planner.pdf_resolve import resolve_plan_pdf
+
+    meta = resolve_plan_pdf(cur, plan)
+    if not meta or not meta.get("available"):
+        return plan, None
+    return plan, meta
+
+
+@router.get("/maszyna/{machine}/job/{plan_id}/pdf")
+def maszyna_job_pdf(
+    machine: str,
+    plan_id: int,
+    request: Request,
+    user=Depends(require_auth),
+    conn=Depends(get_db),
+):
+    """Serwuje pełny PDF wzoru powiązany z pracą (order/artwork → color_jobs)."""
+
+    if user["role"] == "drukarz" and request.session.get("machine") != machine.upper():
+        return HTMLResponse("Brak dostępu do tej maszyny dla obecnego drukarza", status_code=403)
+    cur = conn.cursor()
+    _plan, meta = _maszyna_plan_pdf_meta(cur, machine, plan_id)
+    if _plan is None:
+        return HTMLResponse("Brak zlecenia", status_code=404)
+    if not meta:
+        return HTMLResponse("Brak powiązanego PDF dla tej pracy (artwork/order).", status_code=404)
+    path = Path(meta["source_path"])
+    response = FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=meta.get("filename") or path.name,
+        content_disposition_type="inline",
+    )
+    # Powtórne otwarcia z cache przeglądarki; Range działa przez FileResponse.
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@router.get("/maszyna/{machine}/job/{plan_id}/pdf/meta")
+def maszyna_job_pdf_meta(
+    machine: str,
+    plan_id: int,
+    request: Request,
+    user=Depends(require_auth),
+    conn=Depends(get_db),
+):
+    if user["role"] == "drukarz" and request.session.get("machine") != machine.upper():
+        return JSONResponse({"ok": False, "error": "Brak dostępu"}, status_code=403)
+    cur = conn.cursor()
+    _plan, meta = _maszyna_plan_pdf_meta(cur, machine, plan_id)
+    if _plan is None:
+        return JSONResponse({"ok": False, "error": "Brak zlecenia"}, status_code=404)
+    if not meta:
+        return JSONResponse({"ok": False, "error": "Brak PDF"}, status_code=404)
+    from services.planner.pdf_pages import pdf_page_count
+
+    try:
+        pages = pdf_page_count(Path(meta["source_path"]))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    return JSONResponse({
+        "ok": True,
+        "pages": pages,
+        "order_number": meta.get("order_number") or "",
+        "filename": meta.get("filename") or "",
+        "color_job_id": meta.get("color_job_id"),
+    })
+
+
+@router.get("/maszyna/{machine}/job/{plan_id}/pdf/page/{page}")
+def maszyna_job_pdf_page(
+    machine: str,
+    plan_id: int,
+    page: int,
+    request: Request,
+    user=Depends(require_auth),
+    conn=Depends(get_db),
+):
+    """Szybki podgląd jednej strony jako PNG (cache na dysku). Numeracja od 1."""
+
+    if user["role"] == "drukarz" and request.session.get("machine") != machine.upper():
+        return HTMLResponse("Brak dostępu", status_code=403)
+    if page < 1:
+        return HTMLResponse("Nieprawidłowy numer strony", status_code=400)
+    cur = conn.cursor()
+    _plan, meta = _maszyna_plan_pdf_meta(cur, machine, plan_id)
+    if _plan is None:
+        return HTMLResponse("Brak zlecenia", status_code=404)
+    if not meta:
+        return HTMLResponse("Brak PDF", status_code=404)
+    from services.planner.pdf_pages import render_pdf_page_png
+
+    cache_key = f"j{meta.get('color_job_id') or plan_id}"
+    png = render_pdf_page_png(
+        Path(meta["source_path"]),
+        page - 1,
+        cache_key=cache_key,
+    )
+    if not png or not png.is_file():
+        return HTMLResponse("Nie udało się wyrenderować strony", status_code=500)
+    response = FileResponse(png, media_type="image/png")
+    response.headers["Cache-Control"] = "private, max-age=604800"
+    return response
 
 
 @router.get("/maszyna/{machine}/job/{plan_id}/raport-zadruku")

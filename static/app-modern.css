@@ -496,6 +496,30 @@ textarea.form-control {
     border-style: dashed;
 }
 
+.doc-card-action {
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, transform .12s;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(15, 63, 111, 0.12) !important;
+    border-radius: 18px;
+    padding: 1.1rem;
+}
+
+.doc-card-action:hover {
+    border-color: rgba(15, 63, 111, 0.35) !important;
+    box-shadow: 0 10px 24px rgba(15, 63, 111, 0.12);
+    transform: translateY(-1px);
+}
+
+.doc-thumb {
+    width: 100%;
+    max-height: 140px;
+    object-fit: contain;
+    border-radius: 12px;
+    background: #0f1720;
+    display: block;
+}
+
 .timeline-list {
     display: grid;
     gap: 0.8rem;

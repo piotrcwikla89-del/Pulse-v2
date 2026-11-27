@@ -244,11 +244,66 @@ def reorder_live_queue(cur, machine: str, ordered_ids: list[int]) -> tuple[bool,
     if sorted(current) != sorted(wanted):
         return False, "Lista nie pokrywa się z kolejką maszyny (odśwież stronę)"
 
-    for idx, plan_id in enumerate(wanted):
-        cur.execute(
-            "UPDATE production_plans SET sort_order=? WHERE id=? AND machine=? AND status='planned'",
-            (idx, plan_id, machine),
-        )
+    _renumber_live_planned(cur, machine, wanted)
+    return True, None
+
+
+def move_live_plan_to_machine(
+    cur,
+    *,
+    plan_id: int,
+    target_machine: str,
+    before_plan_id: int | None = None,
+) -> tuple[bool, str | None]:
+    """Przenosi planned między maszynami D6/D8/D10 z zachowaniem pozycji."""
+
+    target_machine = target_machine.upper().strip()
+    if target_machine not in PRODUCTION_MACHINES:
+        return False, "Nieprawidłowa maszyna docelowa"
+
+    cur.execute("SELECT id, machine, status FROM production_plans WHERE id=?", (int(plan_id),))
+    row = cur.fetchone()
+    if not row:
+        return False, "Brak pozycji"
+    status = _row_get(row, "status", 2) or ""
+    if status != "planned":
+        return False, "Można przenosić tylko prace planned"
+    src_machine = (_row_get(row, "machine", 1) or "").upper()
+
+    # Usuń z kolejki źródłowej
+    cur.execute(
+        """
+        SELECT id FROM production_plans
+        WHERE machine=? AND status='planned'
+        ORDER BY sort_order, id
+        """,
+        (src_machine,),
+    )
+    src_ids = [int(_row_get(r, "id", 0)) for r in cur.fetchall()]
+    if int(plan_id) in src_ids:
+        src_ids.remove(int(plan_id))
+    _renumber_live_planned(cur, src_machine, src_ids)
+
+    cur.execute(
+        "UPDATE production_plans SET machine=? WHERE id=? AND status='planned'",
+        (target_machine, int(plan_id)),
+    )
+
+    cur.execute(
+        """
+        SELECT id FROM production_plans
+        WHERE machine=? AND status='planned' AND id!=?
+        ORDER BY sort_order, id
+        """,
+        (target_machine, int(plan_id)),
+    )
+    dst_ids = [int(_row_get(r, "id", 0)) for r in cur.fetchall()]
+    if before_plan_id and int(before_plan_id) in dst_ids:
+        idx = dst_ids.index(int(before_plan_id))
+        dst_ids.insert(idx, int(plan_id))
+    else:
+        dst_ids.append(int(plan_id))
+    _renumber_live_planned(cur, target_machine, dst_ids)
     return True, None
 
 

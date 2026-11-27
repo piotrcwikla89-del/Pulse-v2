@@ -78,7 +78,22 @@ def _setup_db():
             lub_number TEXT,
             order_name TEXT,
             status TEXT,
-            color_job_id INTEGER
+            color_job_id INTEGER,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            farby_prep_status TEXT,
+            polimery_prep_status TEXT,
+            assortment_prep_status TEXT
+        );
+        CREATE TABLE plan_draft_items (
+            id INTEGER PRIMARY KEY,
+            draft_id INTEGER,
+            machine TEXT,
+            order_number TEXT,
+            artwork_number TEXT,
+            lub_number TEXT,
+            order_name TEXT,
+            color_job_id INTEGER,
+            sort_order INTEGER NOT NULL DEFAULT 0
         );
         """
     )

@@ -8,385 +8,596 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/static/app-modern.css">
     <style>
-        .planner-shell {
-            display: grid;
-            grid-template-columns: minmax(240px, 0.95fr) minmax(320px, 1.25fr) minmax(260px, 0.95fr);
-            gap: 1rem;
-            align-items: start;
+        :root {
+            --pulse-bg: #f4f6f9;
+            --pulse-surface: #ffffff;
+            --pulse-border: #dce3ec;
+            --pulse-text: #1a2b3c;
+            --pulse-muted: #6a7c8f;
+            --pulse-navy: #12304a;
+            --pulse-blue: #2b6cb0;
+            --pulse-green: #2f6f4e;
+            --pulse-green-bg: #e7f5ee;
+            --pulse-amber: #9a6700;
+            --pulse-amber-bg: #fff6e0;
+            --pulse-danger: #b42318;
         }
-        @media (max-width: 1200px) {
-            .planner-shell { grid-template-columns: 1fr 1fr; }
-            .tracks-col { grid-column: 1 / -1; }
+        body { background: var(--pulse-bg); color: var(--pulse-text); }
+        .pulse-shell { min-height: 100vh; display: flex; flex-direction: column; }
+        .pulse-topbar {
+            background: var(--pulse-surface); border-bottom: 1px solid var(--pulse-border);
+            padding: .65rem 1rem; display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;
         }
-        @media (max-width: 768px) {
-            .planner-shell { grid-template-columns: 1fr; }
+        .pulse-brand { font-weight: 700; color: var(--pulse-navy); letter-spacing: .02em; }
+        .pulse-tabs { display:flex; gap:.25rem; }
+        .pulse-tab {
+            border: 1px solid transparent; background: transparent; color: var(--pulse-muted);
+            padding: .4rem .9rem; border-radius: 8px; font-weight: 600; font-size: .9rem; text-decoration:none;
         }
-        .panel-card {
-            background: #fff; border: 1px solid #d9e2ec; border-radius: 12px;
-            padding: .85rem; min-height: 420px;
+        .pulse-tab:hover { color: var(--pulse-navy); background: #eef3f8; }
+        .pulse-tab.active { color: #fff; background: var(--pulse-navy); }
+        .pulse-body { flex: 1; padding: .75rem 1rem 1rem; min-height: 0; }
+        .tab-panel { display: none; height: calc(100vh - 78px); min-height: 560px; }
+        .tab-panel.active { display: flex; flex-direction: column; gap: .75rem; }
+
+        /* DRUKARNIA: 50/50 */
+        .druk-split {
+            display: grid; grid-template-rows: minmax(240px, 1fr) minmax(260px, 1fr);
+            gap: .75rem; flex: 1; min-height: 0;
         }
-        .panel-card h2 { font-size: 1.05rem; margin: 0; }
+        .druk-top {
+            display: grid; grid-template-columns: minmax(280px, 1.05fr) minmax(300px, 1fr);
+            gap: .75rem; min-height: 0;
+        }
+        .druk-bottom {
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: .75rem; min-height: 0;
+        }
+        @media (max-width: 1100px) {
+            .druk-top { grid-template-columns: 1fr; }
+            .druk-bottom { grid-template-columns: 1fr; }
+            .druk-split { grid-template-rows: auto auto; height: auto; }
+            .tab-panel { height: auto; }
+        }
+
+        .panel {
+            background: var(--pulse-surface); border: 1px solid var(--pulse-border);
+            border-radius: 12px; display:flex; flex-direction:column; min-height: 0; overflow: hidden;
+        }
+        .panel-h {
+            padding: .55rem .75rem; border-bottom: 1px solid var(--pulse-border);
+            display:flex; justify-content:space-between; align-items:center; gap:.5rem; flex-wrap:wrap;
+        }
+        .panel-h h2 { font-size: .95rem; margin: 0; color: var(--pulse-navy); font-weight: 700; }
+        .panel-b { padding: .55rem .65rem; overflow: auto; flex: 1; min-height: 0; }
+
+        .ingest-slim {
+            background: var(--pulse-navy); color:#fff; border-radius: 10px; padding: .45rem .7rem;
+            display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; font-size:.8rem;
+        }
+        .ingest-slim .form-control, .ingest-slim .btn { font-size: .8rem; }
+
+        /* Pool tiles — compact */
+        .pool-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .65rem; }
         .job-tile {
-            border: 1px solid #d9e2ec; border-radius: 10px; background: #fff;
-            padding: .55rem; cursor: grab; transition: box-shadow .18s, transform .18s;
-            position: relative; z-index: 1;
+            border: 1px solid var(--pulse-border); border-radius: 8px; background:#fff;
+            padding: .45rem; cursor: grab; transition: border-color .15s, box-shadow .15s;
         }
-        .job-tile:hover {
-            box-shadow: 0 14px 34px rgba(18,48,74,.22);
-            transform: scale(1.06); z-index: 20;
-        }
-        .job-tile.selected { outline: 2px solid #0d6efd; }
+        .job-tile:hover { border-color: #9bb6d1; box-shadow: 0 4px 14px rgba(18,48,74,.08); }
+        .job-tile.selected { outline: 2px solid var(--pulse-blue); }
         .job-thumb {
-            width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 6px; background: #eef3f8;
+            width: 100%; aspect-ratio: 3/4; max-height: 210px; object-fit: contain; border-radius: 6px;
+            background:#0f1720; cursor: pointer;
         }
-        .job-thumb-empty { display:flex; align-items:center; justify-content:center; color:#8aa0b5; aspect-ratio:4/3; background:#eef3f8; border-radius:6px; }
-        .job-zoom {
-            position: fixed; z-index: 1050; pointer-events: none; display: none;
-            border-radius: 10px; overflow: hidden; box-shadow: 0 18px 48px rgba(0,0,0,.35);
-            border: 2px solid #fff; background: #111; max-width: min(420px, 46vw);
+        .job-thumb-empty {
+            display:flex; align-items:center; justify-content:center; color:#8aa0b5;
+            aspect-ratio:3/4; max-height:210px; background:#eef3f8; border-radius:6px; font-size:.85rem;
         }
-        .job-zoom img { display:block; width: 100%; height: auto; }
-        .track {
-            min-height: 160px; border: 2px dashed #c5d3e0; border-radius: 12px;
-            background: linear-gradient(180deg, #f8fbff, #f3f7fb); padding: .7rem; margin-bottom: .65rem;
-        }
-        .track.drag-over { border-color: #0d6efd; background: #eaf2ff; }
-        .track-title { font-weight: 700; }
-        .queue-item, .draft-item {
-            border-radius: 8px; padding: .4rem .5rem; margin-bottom: .35rem; font-size: .84rem;
-        }
-        .queue-item { background: #e9eef4; color: #445566; }
-        .queue-item.in-progress { background: #ffe8cc; color: #7a4b00; cursor: default; }
-        .queue-item[draggable="true"], .draft-item[draggable="true"] { cursor: grab; }
-        .queue-item { cursor: pointer; }
-        .queue-item.dragging, .draft-item.dragging { opacity: .55; }
-        .queue-item.drag-target, .draft-item.drag-target {
-            box-shadow: inset 0 3px 0 #0d6efd;
-        }
-        .queue-item.insert-before, .draft-item.insert-before {
-            box-shadow: inset 0 3px 0 #198754;
-        }
-        .queue-item.match-anchor, .draft-item.match-anchor {
-            outline: 2px solid #0d6efd; outline-offset: 1px;
-        }
-        .live-queue-list, .draft-list { min-height: 28px; }
-        .live-queue-list.pool-drop-target, .draft-list.pool-drop-target {
-            outline: 2px dashed #198754; outline-offset: 2px; background: #eefaf3;
-        }
-        .live-dot {
-            display:inline-block; width:.55rem; height:.55rem; border-radius:50%;
-            background:#9aa8b5; margin-right:.35rem; vertical-align:middle;
-        }
-        .live-dot.on { background:#28a745; box-shadow:0 0 0 0 rgba(40,167,69,.55); animation: livePulse 1.6s infinite; }
-        .live-dot.err { background:#dc3545; animation:none; }
-        @keyframes livePulse {
-            0% { box-shadow:0 0 0 0 rgba(40,167,69,.45); }
-            70% { box-shadow:0 0 0 8px rgba(40,167,69,0); }
-            100% { box-shadow:0 0 0 0 rgba(40,167,69,0); }
-        }
-        .prep-pill {
-            display:inline-block; font-size:.65rem; border-radius:4px; padding:.05rem .28rem;
-            margin-right:.2rem; background:#eef2f7; color:#445566;
-        }
-        .prep-pill.ready { background:#d9f2e6; color:#0f5132; }
-        .prep-pill.pending { background:#f1f3f5; color:#6a7c8f; }
-        .queue-item-head { display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start; }
-        .draft-item {
-            background: #d9f2e6; color: #0f5132; display:flex; flex-direction:column; gap:.25rem;
-        }
-        .draft-item-head { display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start; width:100%; }
         .color-chip {
-            display:inline-block; font-size:.68rem; background:#eef2f7; border-radius:999px;
-            padding:.08rem .4rem; margin:.08rem .08rem 0 0;
+            display:inline-block; font-size:.62rem; background:#eef2f7; border-radius:4px;
+            padding:.04rem .28rem; margin:.05rem .04rem 0 0; color:#445566;
         }
-        .chip-shared { background:#d9f2e6; color:#0f5132; }
-        .chip-left { background:#ffe8cc; color:#7a4b00; }
-        .chip-right { background:#dce8ff; color:#1a3a6b; }
+        .chip-shared { background: var(--pulse-green-bg); color: var(--pulse-green); }
+        .chip-left { background: var(--pulse-amber-bg); color: var(--pulse-amber); }
+        .chip-right { background:#e8f0fe; color:#1a3a6b; }
+
+        /* Matcher */
+        .matcher-empty { color: var(--pulse-muted); font-size: .9rem; padding: 1rem .25rem; }
+        .matcher-preview {
+            width: 100%; max-height: 280px; object-fit: contain; background:#0f1720;
+            border-radius: 8px; cursor: zoom-in;
+        }
+        .thumb-wrap { position: relative; display: block; width: 100%; }
+        .thumb-wrap .job-thumb, .thumb-wrap .q-thumb { display:block; width: 100%; }
+        .btn-thumb-expand {
+            position: absolute; right: 2px; top: 2px; z-index: 2;
+            border: 1px solid #c5d0dc; background: rgba(255,255,255,.92);
+            color: #1a3a6b; border-radius: 4px; width: 22px; height: 22px;
+            font-size: .7rem; line-height: 1; padding: 0; cursor: pointer;
+        }
+        .btn-thumb-expand:hover { background: #fff; border-color: var(--pulse-blue); }
         .match-badge {
             display:inline-block; font-size:.72rem; font-weight:700; border-radius:6px;
-            padding:.12rem .4rem; white-space:nowrap; border:1px solid transparent;
+            padding:.12rem .4rem; border:1px solid transparent; white-space:nowrap;
         }
-        .match-badge.band-high { background:#d9f2e6; color:#0f5132; border-color:#9dccb0; }
-        .match-badge.band-mid { background:#fff3cd; color:#7a5b00; border-color:#e6d08a; }
+        .match-badge.band-high { background: var(--pulse-green-bg); color: var(--pulse-green); border-color:#9dccb0; }
+        .match-badge.band-mid { background: var(--pulse-amber-bg); color: var(--pulse-amber); border-color:#e6d08a; }
         .match-badge.band-low { background:#f1f3f5; color:#5c6b7a; border-color:#cfd8e0; }
-        .match-badge.band-none { background:#fff; color:#8aa0b5; border-color:#d9e2ec; font-weight:500; }
-        .match-details {
-            margin-top:.35rem; padding-top:.35rem; border-top:1px dashed #c5d3e0;
-            display:none; font-size:.75rem;
+        .match-badge.band-none { background:#fff; color:#8aa0b5; border-color: var(--pulse-border); font-weight:500; }
+        .hint-box {
+            border: 1px solid var(--pulse-border); border-radius: 8px; padding: .45rem .55rem;
+            background: #f8fbff; font-size: .82rem;
         }
-        .match-details.open { display:block; }
-        .match-details h6 {
-            font-size:.68rem; text-transform:uppercase; letter-spacing:.03em;
-            margin:.2rem 0 .15rem; color:#6a7c8f;
-        }
-        .btn-match-toggle {
-            border:0; background:transparent; color:#3d5a73; font-size:.72rem;
-            padding:0; text-decoration:underline; cursor:pointer;
-        }
-        .ingest-bar { background:#12304a; color:#fff; border-radius:12px; }
-        .pool-empty { display: none; }
-        .pool-empty.visible { display: block; }
-        #toastHost { position: fixed; right: 1rem; bottom: 1rem; z-index: 1100; min-width: 240px; }
+        .hint-box strong { color: var(--pulse-navy); }
+        .match-legend { display:flex; gap:.35rem; flex-wrap:wrap; font-size:.7rem; color: var(--pulse-muted); }
 
-        /* Color matching — panel informacyjny */
-        .assistant-head { display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start; margin-bottom:.65rem; }
-        .match-legend { display:flex; gap:.45rem; flex-wrap:wrap; font-size:.72rem; }
-        .match-legend span { display:inline-flex; align-items:center; gap:.25rem; }
-        .compare-card {
-            border: 1px solid #d9e2ec; border-radius: 10px; padding: .5rem; background: #f8fbff;
+        /* Machine tracks — compact */
+        .machine-col .panel-h .meta { font-size: .72rem; color: var(--pulse-muted); }
+        .live-queue-list, .draft-list { min-height: 24px; }
+        .q-row {
+            display:grid; grid-template-columns: 22px 52px 1fr auto; gap: .4rem; align-items:center;
+            border: 1px solid var(--pulse-border); border-radius: 8px; padding: .32rem .4rem;
+            margin-bottom: .3rem; background: #f7f9fc; font-size: .78rem; cursor: pointer;
         }
-        .compare-card img, .compare-card .job-thumb-empty {
-            width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 6px;
+        .q-row.in-progress { background: var(--pulse-amber-bg); }
+        .q-row[draggable="true"] { cursor: grab; }
+        .q-row.dragging { opacity: .55; }
+        .q-row.drag-target, .q-row.insert-before { box-shadow: inset 0 2px 0 var(--pulse-blue); }
+        .q-row.match-anchor { outline: 2px solid var(--pulse-blue); }
+        .q-pos { font-weight: 700; color: var(--pulse-muted); text-align:center; }
+        .q-thumb {
+            width: 52px; height: 64px; object-fit: contain; border-radius: 5px; background:#0f1720; cursor: pointer;
         }
-        .assistant-empty { color:#6a7c8f; font-size: .9rem; padding: 1rem .25rem; }
-        .pool-scroll { max-height: 70vh; overflow: auto; }
-        .tracks-scroll { max-height: 70vh; overflow: auto; }
-        .queue-matching-on .queue-item { transition: box-shadow .15s; }
+        .q-thumb-empty {
+            width: 52px; height: 64px; border-radius: 5px; background:#eef3f8; display:flex;
+            align-items:center; justify-content:center; color:#8aa0b5; font-size:.65rem;
+        }
+        .prep-pill {
+            display:inline-block; font-size:.6rem; border-radius:4px; padding:.02rem .22rem; margin-right:.15rem;
+            background:#eef2f7; color:#445566;
+        }
+        .prep-pill.ready { background: var(--pulse-green-bg); color: var(--pulse-green); }
+        .changeover {
+            font-size: .68rem; color: var(--pulse-muted); text-align:center; padding: .1rem 0 .25rem;
+            line-height: 1.25;
+        }
+        .changeover button {
+            border:0; background:transparent; color: var(--pulse-blue); text-decoration:underline;
+            font-size: .68rem; padding:0; cursor:pointer;
+        }
+        .changeover-details {
+            display:none; text-align:left; margin-top:.2rem; padding:.3rem; background:#fff;
+            border: 1px dashed var(--pulse-border); border-radius:6px;
+        }
+        .changeover-details.open { display:block; }
+        .draft-item {
+            background: var(--pulse-green-bg); color: var(--pulse-green); border-radius: 8px;
+            padding: .28rem .35rem; margin-bottom: .3rem; font-size: .78rem;
+        }
+        .draft-item-head { display:flex; justify-content:space-between; gap:.35rem; align-items:flex-start; }
+        .draft-item[draggable="true"] { cursor: grab; }
+        .pool-drop-target { outline: 2px dashed var(--pulse-green); outline-offset: 2px; background: #f3fbf6; }
+        .live-dot {
+            display:inline-block; width:.5rem; height:.5rem; border-radius:50%; background:#9aa8b5; margin-right:.3rem;
+        }
+        .live-dot.on { background:#28a745; animation: livePulse 1.6s infinite; }
+        .live-dot.err { background: var(--pulse-danger); }
+        @keyframes livePulse {
+            0% { box-shadow:0 0 0 0 rgba(40,167,69,.45); }
+            70% { box-shadow:0 0 0 7px rgba(40,167,69,0); }
+            100% { box-shadow:0 0 0 0 rgba(40,167,69,0); }
+        }
+        .pool-empty { display:none; }
+        .pool-empty.visible { display:block; }
+        #toastHost { position:fixed; right:1rem; bottom:1rem; z-index:1100; min-width:240px; }
+        .job-zoom {
+            position:fixed; z-index:1050; pointer-events:none; display:none;
+            border-radius:10px; overflow:hidden; box-shadow:0 18px 48px rgba(0,0,0,.35);
+            border:2px solid #fff; background:#111; max-width:min(480px, 50vw);
+        }
+        .job-zoom img { display:block; width:100%; height:auto; }
+        .pdf-lightbox {
+            position:fixed; inset:0; z-index:1200; background:rgba(10,18,28,.72);
+            display:none; align-items:center; justify-content:center; padding:1.5rem;
+        }
+        .pdf-lightbox.open { display:flex; }
+        .pdf-lightbox img {
+            max-width: min(920px, 94vw); max-height: 88vh; border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.45); background:#111;
+        }
+        .hist-table { font-size: .85rem; }
+        .winding-grid {
+            display:grid; grid-template-columns: 1fr 1fr; gap: .75rem; flex:1; min-height:0;
+        }
+        @media (max-width: 900px) { .winding-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
-<body class="bg-light">
-<div class="container-fluid py-3 px-3 px-lg-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <div>
-            <h1 class="h3 mb-0"><i class="fas fa-clipboard-list"></i> Panel planisty</h1>
-            <div class="text-muted small">Pula → color matching (informacyjny) → tory D6/D8/D10 · bez sortowania kolejek</div>
+<body>
+<div class="pulse-shell">
+    <header class="pulse-topbar">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="pulse-brand"><i class="fas fa-industry me-1"></i> PULSE · Planista</div>
+            <nav class="pulse-tabs" aria-label="Główna nawigacja">
+                <a class="pulse-tab {% if tab == 'drukarnia' %}active{% endif %}" href="/planista?tab=drukarnia">Drukarnia</a>
+                <a class="pulse-tab {% if tab == 'przewijanie' %}active{% endif %}" href="/planista?tab=przewijanie">Przewijanie</a>
+                <a class="pulse-tab {% if tab == 'historia' %}active{% endif %}" href="/planista?tab=historia">Historia</a>
+            </nav>
         </div>
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-            <span class="badge bg-primary">{{ user.username }} ({{ user.role }})</span>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge text-bg-light border">{{ user.username }} · {{ user.role }}</span>
             {% if user.role in ['admin', 'manager'] %}
-            <a href="/dashboard" class="btn btn-outline-secondary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
-            <a href="/plany" class="btn btn-outline-secondary btn-sm"><i class="fas fa-calendar"></i> Plany</a>
+            <a href="/dashboard" class="btn btn-outline-secondary btn-sm">Dashboard</a>
             {% endif %}
-            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm">Wyloguj</a>
         </div>
-    </div>
+    </header>
 
-    {% if success %}
-    <div class="alert alert-success alert-dismissible fade show" role="alert">{{ success }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-    {% endif %}
-    {% if error %}
-    <div class="alert alert-danger alert-dismissible fade show" role="alert">{{ error }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-    {% endif %}
+    <main class="pulse-body">
+        {% if success %}
+        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">{{ success }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+        {% endif %}
+        {% if error %}
+        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">{{ error }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+        {% endif %}
 
-    <div class="ingest-bar p-3 mb-3">
-        <div class="row g-3 align-items-end">
-            <div class="col-lg-6">
-                <div class="small opacity-75 mb-1">Folder PDF (widoczny dla serwera PULSE)</div>
-                <form method="post" action="/planista/settings" class="d-flex gap-2 flex-wrap">
-                    <div class="input-group input-group-sm flex-grow-1" style="min-width:220px;">
-                        <input type="text" name="pdf_root" id="planistaPdfRoot" class="form-control"
-                               value="{{ settings.planner_pdf_root }}" placeholder="Wybierz folder…">
-                        <button type="button" class="btn btn-light" data-folder-picker="#planistaPdfRoot">
-                            <i class="fas fa-folder-open"></i>
-                        </button>
-                    </div>
+        <!-- ========== DRUKARNIA ========== -->
+        <section class="tab-panel {% if tab == 'drukarnia' %}active{% endif %}" id="tab-drukarnia">
+            <div class="ingest-slim">
+                <form method="post" action="/planista/settings" class="d-flex gap-1 flex-wrap align-items-center flex-grow-1">
+                    <span class="opacity-75">PDF</span>
+                    <input type="text" name="pdf_root" id="planistaPdfRoot" class="form-control form-control-sm"
+                           style="max-width:260px" value="{{ settings.planner_pdf_root }}" placeholder="Folder PDF…">
+                    <button type="button" class="btn btn-sm btn-light" data-folder-picker="#planistaPdfRoot"><i class="fas fa-folder-open"></i></button>
                     <input type="hidden" name="scan_interval_min" value="{{ settings.planner_scan_interval_min }}">
                     <input type="hidden" name="watcher_enabled" value="{{ settings.planner_watcher_enabled }}">
                     <button class="btn btn-sm btn-light" type="submit">Zapisz</button>
                 </form>
-                <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="d-flex gap-2 mt-2">
-                    <input type="file" name="files" class="form-control form-control-sm" accept=".pdf,application/pdf" multiple>
-                    <button class="btn btn-sm btn-success" type="submit"><i class="fas fa-upload"></i></button>
+                <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="d-flex gap-1">
+                    <input type="file" name="files" class="form-control form-control-sm" accept=".pdf,application/pdf" multiple style="max-width:160px" title="PDF">
+                    <button class="btn btn-sm btn-success" type="submit" title="Upload PDF"><i class="fas fa-upload"></i></button>
                 </form>
-            </div>
-            <div class="col-lg-3">
-                <div class="small opacity-75 mb-1">Ostatni skan</div>
-                <div class="fw-semibold">{{ settings.planner_last_scan_at or '—' }}</div>
-                <div class="small opacity-75">{{ settings.planner_last_scan_summary or '' }}</div>
-            </div>
-            <div class="col-lg-1">
-                <div class="small opacity-75 mb-1">Kolejka</div>
-                <div class="small">p{{ ingest_counts.get('pending', 0) }}/d{{ ingest_counts.get('done', 0) }}/e{{ ingest_counts.get('error', 0) }}</div>
-            </div>
-            <div class="col-lg-2 text-lg-end">
-                <form method="post" action="/planista/scan" class="d-inline" id="planistaScanForm">
+                <form method="post" action="/planista/import-excel" enctype="multipart/form-data" class="d-flex gap-1 align-items-center flex-wrap"
+                      title="Excel: plan produkcyjny (Stanowisko/Zlecenie/Artwork), katalog farb ORDER_COLORS lub prosty draft">
+                    <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="max-width:180px" required>
+                    <label class="small text-nowrap mb-0 opacity-75" title="Usuwa tylko status planned przed importem planu ERP">
+                        <input type="checkbox" name="replace_planned" value="1" class="form-check-input me-1"> Zastąp planned
+                    </label>
+                    <button class="btn btn-sm btn-primary" type="submit" title="Import Excel"><i class="fas fa-file-excel"></i> Excel</button>
+                </form>
+                <form method="post" action="/planista/scan" class="d-inline">
                     <input type="hidden" name="folder" id="planistaScanFolder" value="{{ settings.planner_pdf_root }}">
-                    <button class="btn btn-warning btn-sm" type="submit"><i class="fas fa-sync"></i> Skanuj teraz</button>
+                    <button class="btn btn-sm btn-warning" type="submit" title="Skan PDF + ponowienie słabych ekstrakcji + link plan↔PDF"><i class="fas fa-sync"></i> Skan</button>
                 </form>
+                <span class="opacity-75" title="pending / done / error">p{{ ingest_counts.get('pending', 0) }}/d{{ ingest_counts.get('done', 0) }}/e{{ ingest_counts.get('error', 0) }}</span>
             </div>
-        </div>
-    </div>
 
-    <div class="planner-shell">
-        <!-- PULA -->
-        <div class="panel-card">
-            <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
-                <h2>Pula prac <span class="text-muted small" id="poolCount">({{ jobs|length }})</span></h2>
-                <form method="get" action="/planista" class="d-flex gap-1">
-                    <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Szukaj…" style="max-width:120px;">
-                    <button class="btn btn-sm btn-outline-primary" type="submit">Filtr</button>
-                </form>
-            </div>
-            <div class="pool-scroll">
-                <div class="row g-2" id="jobPool">
-                    {% for job in jobs %}
-                    {% set jid = job.id if job.id is defined else job['id'] %}
-                    <div class="col-12 col-xxl-6 job-col" data-job-id="{{ jid }}">
-                        <div class="job-tile" draggable="true"
-                             data-job-id="{{ jid }}"
-                             data-order-number="{{ job.order_number or '' }}"
-                             data-order-name="{{ job.order_name or '' }}"
-                             data-thumb="{{ job.thumbnail_path or '' }}"
-                             data-colors='{{ colors.get(jid, [])|tojson }}'>
-                            {% if job.thumbnail_path %}
-                            <img class="job-thumb mb-2" src="{{ job.thumbnail_path }}" alt="">
-                            {% else %}
-                            <div class="job-thumb-empty mb-2"><i class="fas fa-file-pdf fa-lg"></i></div>
-                            {% endif %}
-                            <div class="fw-semibold text-truncate">{{ job.order_number or '—' }}</div>
-                            <div class="small text-muted text-truncate">{{ job.order_name or '' }}</div>
-                            <div class="small">{{ job.color_count or 0 }} kolorów</div>
-                            <div class="mt-1 job-colors">
-                                {% for c in colors.get(jid, [])[:5] %}
-                                <span class="color-chip">{{ c }}</span>
+            <div class="druk-split">
+                <div class="druk-top">
+                    <!-- PULA -->
+                    <div class="panel">
+                        <div class="panel-h">
+                            <h2>Pula prac <span class="text-muted fw-normal" id="poolCount">({{ jobs|length }})</span></h2>
+                            <form method="get" action="/planista" class="d-flex gap-1">
+                                <input type="hidden" name="tab" value="drukarnia">
+                                <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Szukaj…" style="max-width:120px">
+                                <button class="btn btn-sm btn-outline-primary" type="submit">Filtr</button>
+                            </form>
+                        </div>
+                        <div class="panel-b">
+                            <div class="pool-grid" id="jobPool">
+                                {% for job in jobs %}
+                                {% set jid = job.id if job.id is defined else job['id'] %}
+                                <div class="job-col" data-job-id="{{ jid }}">
+                                    <div class="job-tile" draggable="true"
+                                         data-job-id="{{ jid }}"
+                                         data-order-number="{{ job.order_number or '' }}"
+                                         data-order-name="{{ job.order_name or '' }}"
+                                         data-thumb="{{ job.thumbnail_path or '' }}"
+                                         data-colors='{{ colors.get(jid, [])|tojson }}'>
+                                        <div class="thumb-wrap mb-1">
+                                        {% if job.thumbnail_path %}
+                                        <img class="job-thumb" src="{{ job.thumbnail_path }}" alt="">
+                                        <button type="button" class="btn-thumb-expand" data-lightbox="{{ job.thumbnail_path }}" title="Powiększ podgląd">⤢</button>
+                                        {% else %}
+                                        <div class="job-thumb-empty"><i class="fas fa-file-pdf"></i></div>
+                                        {% endif %}
+                                        </div>
+                                        <div class="fw-semibold text-truncate" style="font-size:.8rem">{{ job.order_number or '—' }}</div>
+                                        <div class="text-muted text-truncate" style="font-size:.7rem">{{ job.order_name or '' }}</div>
+                                        <div style="font-size:.7rem">{{ job.color_count or 0 }} kolorów</div>
+                                        <div class="mt-1">
+                                            {% for c in colors.get(jid, [])[:4] %}
+                                            <span class="color-chip">{{ c }}</span>
+                                            {% endfor %}
+                                        </div>
+                                        <div class="mt-1 d-flex flex-wrap gap-1">
+                                            {% for m in machines %}
+                                            <button type="button" class="btn btn-outline-success btn-sm py-0 px-1 btn-assign" data-machine="{{ m }}">+{{ m }}</button>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
                                 {% endfor %}
                             </div>
-                            <div class="mt-2 d-flex flex-wrap gap-1 machine-btns">
-                                {% for m in machines %}
-                                <button type="button" class="btn btn-outline-success btn-sm py-0 px-1 btn-assign" data-machine="{{ m }}">+{{ m }}</button>
-                                {% endfor %}
+                            <div class="alert alert-secondary mb-0 pool-empty {% if not jobs %}visible{% endif %}" id="poolEmpty">
+                                Brak prac w puli. Zaimportuj PDF albo przywróć z kolejki (↩ + hasło).
                             </div>
                         </div>
                     </div>
-                    {% endfor %}
-                </div>
-                <div class="alert alert-secondary mb-0 pool-empty {% if not jobs %}visible{% endif %}" id="poolEmpty">
-                    Brak prac w puli. Zaimportuj PDF albo przywróć z kolejki (↩ + hasło).
-                </div>
-            </div>
-        </div>
 
-        <!-- COLOR MATCHING (informacyjny) -->
-        <div class="panel-card" id="assistantPanel">
-            <div class="assistant-head">
-                <div>
-                    <h2><i class="fas fa-palette me-1"></i> Color Matching</h2>
-                    <div class="text-muted small">Wybierz pracę z puli — wynik pojawia się przy każdej pozycji w kolejce (bez sortowania i rekomendacji).</div>
-                </div>
-                <div class="match-legend">
-                    <span><span class="match-badge band-high">≥70%</span> wysokie</span>
-                    <span><span class="match-badge band-mid">40–69%</span> średnie</span>
-                    <span><span class="match-badge band-low">&lt;40%</span> niskie</span>
-                </div>
-            </div>
-
-            <div id="assistantEmpty" class="assistant-empty">
-                Kliknij pracę w puli albo w kolejce live/draft — porównanie kolorów pojawi się przy pozostałych pozycjach.
-                Z puli przeciągnij między zaplanowane prace (zielona kreska = miejsce wstawienia).
-            </div>
-
-            <div id="assistantBody" style="display:none;">
-                <div class="compare-card" id="anchorCard">
-                    <div class="small text-muted mb-1">Wybrana praca (bez maszyny)</div>
-                    <div id="anchorThumb"></div>
-                    <div class="fw-semibold text-truncate mt-1" id="anchorTitle">—</div>
-                    <div class="small text-muted text-truncate" id="anchorSub"></div>
-                    <div class="mt-2" id="anchorColors"></div>
-                    <div class="mt-2" id="anchorAssign"></div>
-                    <div class="small text-muted mt-2" id="matchStatus"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- TORY -->
-        <div class="panel-card tracks-col">
-            <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
-                <div>
-                    <h2 class="mb-0">Tory planu <span class="text-muted small">(draft #{{ draft_id }})</span></h2>
-                    <div class="small text-muted" id="liveQueuesStatus">
-                        <span class="live-dot" aria-hidden="true"></span>
-                        Kolejki live — synchronizacja z maszynami…
-                    </div>
-                </div>
-                <form method="post" action="/planista/publish">
-                    <input type="hidden" name="draft_id" value="{{ draft_id }}">
-                    <button class="btn btn-primary btn-sm" type="submit"
-                            onclick="return confirm('Opublikować draft (merge z istniejącymi planami)?')">
-                        <i class="fas fa-cloud-upload-alt"></i> Publikuj
-                    </button>
-                </form>
-            </div>
-            <div class="tracks-scroll">
-                {% for m in machines %}
-                <div class="track" data-machine="{{ m }}">
-                    <div class="track-title mb-1"><i class="fas fa-industry"></i> {{ m }}</div>
-                    <div class="small text-muted mb-1">Na maszynie (live) · stan z production_plans · przeciągnij planned</div>
-                    <div class="live-queue-list" data-machine="{{ m }}" data-scope="live">
-                    {% for row in queues.get(m, []) %}
-                    {% set plan_id = row.id if row.id is defined else row['id'] %}
-                    {% set is_active = row.status == 'in_progress' %}
-                    <div class="queue-item {% if is_active %}in-progress{% endif %}"
-                         data-plan-id="{{ plan_id }}"
-                         data-machine="{{ m }}"
-                         data-status="{{ row.status }}"
-                         data-color-job-id="{{ row.color_job_id or '' }}"
-                         data-order-number="{{ row.order_number or '' }}"
-                         {% if not is_active %}draggable="true"{% endif %}>
-                        <div class="queue-item-head">
+                    <!-- COLOR MATCHER -->
+                    <div class="panel" id="assistantPanel">
+                        <div class="panel-h">
                             <div>
-                                <strong>{{ row.order_number }}</strong>
-                                <span class="opacity-75">· {{ row.status }}</span>
-                                {% if row.order_name %}<div class="small">{{ row.order_name }}</div>{% endif %}
-                                {% if row.lub_number %}<div class="small opacity-75">LUB {{ row.lub_number }}</div>{% endif %}
-                                <div class="mt-1">
-                                    <span class="prep-pill {% if row.farby_prep_status == 'ready' %}ready{% else %}pending{% endif %}">F {{ row.farby_prep_status or 'pending' }}</span>
-                                    <span class="prep-pill {% if row.polimery_prep_status == 'ready' %}ready{% else %}pending{% endif %}">P {{ row.polimery_prep_status or 'pending' }}</span>
+                                <h2><i class="fas fa-palette me-1"></i> Color Matcher</h2>
+                                <div class="match-legend mt-1">
+                                    <span class="match-badge band-high">≥70%</span> wysokie
+                                    <span class="match-badge band-mid">40–69%</span> średnie
+                                    <span class="match-badge band-low">&lt;40%</span> niskie
                                 </div>
                             </div>
-                            <div class="d-flex align-items-start gap-1">
-                                <div class="match-slot" data-match-slot></div>
-                                {% if not is_active %}
-                                <button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
-                                        title="Przywróć do puli (hasło)"
-                                        data-plan-id="{{ plan_id }}"
-                                        data-job-id="{{ row.color_job_id or '' }}"
-                                        data-label="{{ row.order_number or plan_id }}">↩</button>
+                            <div class="small text-muted" id="liveQueuesStatus">
+                                <span class="live-dot"></span> Live…
+                            </div>
+                        </div>
+                        <div class="panel-b">
+                            <div id="assistantEmpty" class="matcher-empty">
+                                Kliknij pracę w puli lub kolejce, aby uruchomić Color Matcher.
+                                Podgląd PDF powiększysz przyciskiem ⤢ (lub dwuklikiem).
+                            </div>
+                            <div id="assistantBody" style="display:none;">
+                                <img class="matcher-preview mb-2 d-none" id="anchorPreview" alt="">
+                                <div id="anchorThumbFallback" class="job-thumb-empty mb-2"><i class="fas fa-file-pdf"></i></div>
+                                <div class="fw-semibold" id="anchorTitle">—</div>
+                                <div class="small text-muted" id="anchorSub">—</div>
+                                <div class="small mt-1" id="anchorColorCount"></div>
+                                <div class="mt-2" id="anchorColors"></div>
+                                <div class="mt-2" id="anchorAssign"></div>
+                                <div class="hint-box mt-3">
+                                    <div class="small text-muted mb-1">Sugestia umiejscowienia</div>
+                                    <div id="placementHints"><span class="text-muted">Brak wystarczających danych.</span></div>
+                                </div>
+                                <div class="small text-muted mt-2" id="matchStatus"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KOLEJKI D6 D8 D10 -->
+                <div class="druk-bottom">
+                    {% for m in machines %}
+                    {% set st = queue_stats.get(m, {}) %}
+                    <div class="panel machine-col track" data-machine="{{ m }}">
+                        <div class="panel-h">
+                            <div>
+                                <h2><i class="fas fa-industry me-1"></i> {{ m }}</h2>
+                                <div class="meta">
+                                    {{ st.get('count', 0) }} prac · {{ st.get('colors_total', 0) }} kol. ·
+                                    prep {{ st.get('prep_pct', 0) }}%
+                                    (F {{ st.get('farby_ready', 0) }}/{{ st.get('count', 0) }},
+                                    P {{ st.get('polimery_ready', 0) }}/{{ st.get('count', 0) }})
+                                </div>
+                            </div>
+                            {% if loop.first %}
+                            <form method="post" action="/planista/publish" class="m-0">
+                                <input type="hidden" name="draft_id" value="{{ draft_id }}">
+                                <button class="btn btn-primary btn-sm" type="submit"
+                                        onclick="return confirm('Opublikować draft (merge z istniejącymi planami)?')">
+                                    <i class="fas fa-cloud-upload-alt"></i> Publikuj
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                        <div class="panel-b">
+                            <div class="small text-muted mb-1">Live · przeciągnij / upuść z puli</div>
+                            <div class="live-queue-list" data-machine="{{ m }}" data-scope="live" id="live-{{ m }}">
+                                {% set rows = queues.get(m, []) %}
+                                {% set cos = changeovers.get(m, []) %}
+                                {% if rows %}
+                                {% for row in rows %}
+                                {% set pos = loop.index %}
+                                <div class="q-row {% if row.status == 'in_progress' %}in-progress{% endif %}"
+                                     data-plan-id="{{ row.id }}"
+                                     data-machine="{{ m }}"
+                                     data-status="{{ row.status }}"
+                                     data-color-job-id="{{ row.color_job_id or '' }}"
+                                     data-order-number="{{ row.order_number or '' }}"
+                                     data-colors='{{ (row.colors or [])|tojson }}'
+                                     {% if row.status != 'in_progress' %}draggable="true"{% endif %}>
+                                    <div class="q-pos">{{ pos }}</div>
+                                    <div class="thumb-wrap">
+                                    {% if row.thumbnail_path %}
+                                    <img class="q-thumb" src="{{ row.thumbnail_path }}" alt="">
+                                    <button type="button" class="btn-thumb-expand" data-lightbox="{{ row.thumbnail_path }}" title="Powiększ">⤢</button>
+                                    {% else %}
+                                    <div class="q-thumb-empty"><i class="fas fa-file-pdf"></i></div>
+                                    {% endif %}
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="fw-semibold text-truncate">{{ row.order_number }} <span class="fw-normal opacity-75">· {{ row.status }}</span></div>
+                                        <div class="text-truncate opacity-75">{{ row.order_name or '' }}</div>
+                                        <div>
+                                            <span class="prep-pill">{{ row.color_count or 0 }} kol.</span>
+                                            <span class="prep-pill {% if row.farby_prep_status == 'ready' %}ready{% endif %}">F</span>
+                                            <span class="prep-pill {% if row.polimery_prep_status == 'ready' %}ready{% endif %}">P</span>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="match-slot" data-match-slot></div>
+                                        {% if row.status != 'in_progress' %}
+                                        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-restore-pool"
+                                                title="Przywróć do puli (hasło)"
+                                                data-plan-id="{{ row.id }}"
+                                                data-job-id="{{ row.color_job_id or '' }}"
+                                                data-label="{{ row.order_number or row.id }}">↩</button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% if not loop.last %}
+                                {% set co = cos[loop.index0] if loop.index0 < cos|length else none %}
+                                <div class="changeover" data-changeover data-from="{{ row.id }}" data-to="{{ rows[loop.index].id if loop.index < rows|length else '' }}">
+                                    {% if co and co.ok %}
+                                    ↓ {{ co.shared_count }} pozostaje | {{ co.add_count }} do zmiany
+                                    <button type="button" data-toggle-co>szczegóły</button>
+                                    <div class="changeover-details" data-co-details>
+                                        <div><strong>Wspólne</strong>: {{ (co.shared or [])|join(', ') or '—' }}</div>
+                                        <div><strong>Schodzące</strong>: {{ (co.only_prev or [])|join(', ') or '—' }}</div>
+                                        <div><strong>Do dodania</strong>: {{ (co.only_next or [])|join(', ') or '—' }}</div>
+                                    </div>
+                                    {% else %}
+                                    ↓ {{ (co.message if co else 'Brak danych kolorystycznych') }}
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% else %}
+                                <div class="small text-muted live-empty">Brak aktywnych zleceń</div>
                                 {% endif %}
                             </div>
-                        </div>
-                        <div class="match-details" data-match-details></div>
-                    </div>
-                    {% else %}
-                    <div class="small text-muted mb-2 live-empty">Brak aktywnych zleceń</div>
-                    {% endfor %}
-                    </div>
-                    <div class="small text-muted mt-2 mb-1">Draft · przeciągnij aby zmienić kolejność</div>
-                    <div class="draft-list" data-machine="{{ m }}" data-scope="draft">
-                        {% for item in draft_items.get(m, []) %}
-                        {% set item_id = item.id if item.id is defined else item['id'] %}
-                        <div class="draft-item" data-item-id="{{ item_id }}" data-job-id="{{ item.color_job_id or '' }}"
-                             data-order-number="{{ item.order_number or '' }}" draggable="true">
-                            <div class="draft-item-head">
-                                <div>
-                                    <strong>{{ item.order_number }}</strong>
-                                    {% if item.order_name %}<div class="small">{{ item.order_name }}</div>{% endif %}
+                            <div class="small text-muted mt-2 mb-1">Draft #{{ draft_id }}</div>
+                            <div class="draft-list" data-machine="{{ m }}" data-scope="draft">
+                                {% for item in draft_items.get(m, []) %}
+                                <div class="draft-item" data-item-id="{{ item.id }}" data-job-id="{{ item.color_job_id or '' }}"
+                                     data-order-number="{{ item.order_number or '' }}"
+                                     data-colors='{{ (item.colors or [])|tojson }}' draggable="true">
+                                    <div class="draft-item-head">
+                                        <div class="d-flex gap-2 align-items-center min-w-0">
+                                            {% if item.thumbnail_path %}
+                                            <div class="thumb-wrap"><img class="q-thumb" src="{{ item.thumbnail_path }}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="{{ item.thumbnail_path }}" title="Powiększ">⤢</button></div>
+                                            {% endif %}
+                                            <div class="min-w-0">
+                                                <strong>{{ item.order_number }}</strong>
+                                                <div class="small text-truncate">{{ item.order_name or '' }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-start gap-1">
+                                            <div class="match-slot" data-match-slot></div>
+                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
+                                                    title="Przywróć do puli (hasło)"
+                                                    data-item-id="{{ item.id }}"
+                                                    data-job-id="{{ item.color_job_id or '' }}"
+                                                    data-label="{{ item.order_number or item.id }}">↩</button>
+                                        </div>
+                                    </div>
+                                    <div class="match-details" data-match-details></div>
                                 </div>
-                                <div class="d-flex align-items-start gap-1">
-                                    <div class="match-slot" data-match-slot></div>
-                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
-                                            title="Przywróć do puli (hasło)"
-                                            data-item-id="{{ item_id }}"
-                                            data-job-id="{{ item.color_job_id or '' }}"
-                                            data-label="{{ item.order_number or item_id }}">↩</button>
-                                </div>
+                                {% endfor %}
                             </div>
-                            <div class="match-details" data-match-details></div>
+                            <div class="small text-muted draft-hint {% if draft_items.get(m) %}d-none{% endif %}" data-machine-hint="{{ m }}">
+                                Upuść pracę lub +{{ m }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PRZEWIJANIE ========== -->
+        <section class="tab-panel {% if tab == 'przewijanie' %}active{% endif %}" id="tab-przewijanie">
+            <div class="alert alert-light border mb-0 py-2 small">
+                Tory P1 / P2 — struktura pod przyszłe terminy wysyłek i priorytety.
+                Color Matching i analiza przezbrojeń kolorystycznych nie dotyczą przewijania.
+            </div>
+            <div class="winding-grid">
+                {% for m in winding_machines %}
+                {% set st = winding_stats.get(m, {}) %}
+                {% set rows = winding.get(m, []) %}
+                <div class="panel">
+                    <div class="panel-h">
+                        <div>
+                            <h2><i class="fas fa-scroll me-1"></i> {{ m }}</h2>
+                            <div class="small text-muted">{{ st.get('count', 0) }} prac w kolejce (live)</div>
+                        </div>
+                    </div>
+                    <div class="panel-b">
+                        {% if rows %}
+                        {% for row in rows %}
+                        <div class="q-row {% if row.status == 'in_progress' %}in-progress{% endif %}" style="cursor:default">
+                            <div class="q-pos">{{ loop.index }}</div>
+                            {% if row.thumbnail_path %}
+                            <div class="thumb-wrap"><img class="q-thumb" src="{{ row.thumbnail_path }}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="{{ row.thumbnail_path }}" title="Powiększ">⤢</button></div>
+                            {% else %}
+                            <div class="q-thumb-empty"><i class="fas fa-file"></i></div>
+                            {% endif %}
+                            <div class="min-w-0">
+                                <div class="fw-semibold text-truncate">{{ row.order_number }} · {{ row.status }}</div>
+                                <div class="text-truncate opacity-75">{{ row.order_name or '' }}</div>
+                            </div>
+                            <div></div>
                         </div>
                         {% endfor %}
-                    </div>
-                    <div class="small text-muted draft-hint {% if draft_items.get(m) %}d-none{% endif %}" data-machine-hint="{{ m }}">
-                        Upuść pracę lub +{{ m }}
+                        {% else %}
+                        <div class="text-muted small">Brak aktywnych zleceń na {{ m }}. Dane pojawią się, gdy trafią do production_plans.</div>
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
             </div>
-        </div>
-    </div>
+        </section>
+
+        <!-- ========== HISTORIA ========== -->
+        <section class="tab-panel {% if tab == 'historia' %}active{% endif %}" id="tab-historia">
+            <div class="row g-3" style="overflow:auto">
+                <div class="col-lg-6">
+                    <div class="panel" style="height:auto; max-height:70vh">
+                        <div class="panel-h"><h2>Publikacje planu</h2></div>
+                        <div class="panel-b">
+                            {% if history.publishes %}
+                            <table class="table table-sm hist-table mb-0">
+                                <thead><tr><th>#</th><th>Kiedy</th><th>Kto</th><th>Podsumowanie</th></tr></thead>
+                                <tbody>
+                                {% for p in history.publishes %}
+                                <tr>
+                                    <td>{{ p.draft_id or '—' }}</td>
+                                    <td>{{ p.created_at or '—' }}</td>
+                                    <td>{{ p.published_by or '—' }}</td>
+                                    <td>{{ p.summary or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            {% else %}
+                            <div class="text-muted small">Brak wpisów w plan_publish_log.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="panel" style="height:auto; max-height:70vh">
+                        <div class="panel-h"><h2>Drafty</h2></div>
+                        <div class="panel-b">
+                            {% if history.drafts %}
+                            <table class="table table-sm hist-table mb-0">
+                                <thead><tr><th>ID</th><th>Nazwa</th><th>Status</th><th>Autor</th><th>Utworzono</th><th>Publikacja</th></tr></thead>
+                                <tbody>
+                                {% for d in history.drafts %}
+                                <tr>
+                                    <td>{{ d.id }}</td>
+                                    <td>{{ d.name }}</td>
+                                    <td>{{ d.status }}</td>
+                                    <td>{{ d.created_by or '—' }}</td>
+                                    <td>{{ d.created_at or '—' }}</td>
+                                    <td>{{ d.published_at or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            {% else %}
+                            <div class="text-muted small">Brak draftów.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
 </div>
 
 <div class="job-zoom" id="jobZoom"><img alt=""></div>
+<div class="pdf-lightbox" id="pdfLightbox" title="Kliknij aby zamknąć"><img alt=""></div>
 <div id="toastHost"></div>
 
 <div class="modal fade" id="restorePoolModal" tabindex="-1" aria-hidden="true">
@@ -421,11 +632,12 @@
   const poolCount = document.getElementById('poolCount');
   const zoom = document.getElementById('jobZoom');
   const zoomImg = zoom.querySelector('img');
-  const tracksScroll = document.querySelector('.tracks-scroll');
+  const lightbox = document.getElementById('pdfLightbox');
+  const lightboxImg = lightbox.querySelector('img');
   const jobCache = new Map();
 
   let anchor = null;
-  let matchSource = null; // { kind:'pool'|'live'|'draft', jobId?, planId?, itemId? }
+  let matchSource = null;
   let liveSignature = '';
   let livePollBusy = false;
   let liveDragging = false;
@@ -434,13 +646,16 @@
   const els = {
     empty: document.getElementById('assistantEmpty'),
     body: document.getElementById('assistantBody'),
-    anchorThumb: document.getElementById('anchorThumb'),
+    preview: document.getElementById('anchorPreview'),
+    thumbFallback: document.getElementById('anchorThumbFallback'),
     anchorTitle: document.getElementById('anchorTitle'),
     anchorSub: document.getElementById('anchorSub'),
     anchorColors: document.getElementById('anchorColors'),
+    anchorColorCount: document.getElementById('anchorColorCount'),
     anchorAssign: document.getElementById('anchorAssign'),
     matchStatus: document.getElementById('matchStatus'),
     liveStatus: document.getElementById('liveQueuesStatus'),
+    placementHints: document.getElementById('placementHints'),
   };
 
   function toast(msg, ok=true) {
@@ -457,10 +672,8 @@
     if (!list || !list.length) return '<span class="text-muted small">—</span>';
     return list.map(c => `<span class="color-chip ${cls || ''}">${escapeHtml(c)}</span>`).join('');
   }
-  function thumbHtml(url) {
-    return url
-      ? `<img src="${escapeHtml(url)}" alt="">`
-      : `<div class="job-thumb-empty"><i class="fas fa-file-pdf"></i></div>`;
+  function prepPill(label, ready) {
+    return `<span class="prep-pill ${ready ? 'ready' : ''}">${escapeHtml(label)}</span>`;
   }
   function assignBtns(jobId) {
     if (!jobId) return '';
@@ -468,16 +681,15 @@
       `<button type="button" class="btn btn-outline-success btn-sm py-0 px-1 btn-assign-assist" data-job-id="${jobId}" data-machine="${m}">+${m}</button>`
     ).join(' ');
   }
-
   function updatePoolMeta() {
     const n = pool.querySelectorAll('.job-col').length;
     poolCount.textContent = `(${n})`;
     poolEmpty.classList.toggle('visible', n === 0);
   }
   function hideZoom() { zoom.style.display = 'none'; zoomImg.removeAttribute('src'); }
-  function showZoom(thumbUrl, event) {
-    if (!thumbUrl) { hideZoom(); return; }
-    zoomImg.src = thumbUrl;
+  function showZoom(url, event) {
+    if (!url) { hideZoom(); return; }
+    zoomImg.src = url;
     zoom.style.display = 'block';
     let x = event.clientX + 18, y = event.clientY + 18;
     const w = Math.min(420, window.innerWidth * 0.46);
@@ -486,14 +698,21 @@
     zoom.style.left = `${Math.max(16, x)}px`;
     zoom.style.top = `${Math.max(16, y)}px`;
   }
+  function openLightbox(url) {
+    if (!url) return;
+    lightboxImg.src = url;
+    lightbox.classList.add('open');
+  }
+  lightbox.addEventListener('click', () => lightbox.classList.remove('open'));
 
   function draftList(machine) { return document.querySelector(`.draft-list[data-machine="${machine}"]`); }
   function setDraftHint(machine) {
     const list = draftList(machine);
     const hint = document.querySelector(`[data-machine-hint="${machine}"]`);
     if (!hint || !list) return;
-    hint.classList.toggle('d-none', list.children.length > 0);
+    hint.classList.toggle('d-none', list.querySelectorAll('.draft-item').length > 0);
   }
+
   function appendDraftItem(item, beforeItemId) {
     const list = draftList(item.machine);
     if (!list) return;
@@ -503,213 +722,32 @@
     el.dataset.itemId = item.id;
     el.dataset.jobId = item.color_job_id || '';
     el.dataset.orderNumber = item.order_number || '';
+    el.dataset.colors = JSON.stringify(item.colors || []);
     el.innerHTML = `<div class="draft-item-head">
-        <div><strong>${escapeHtml(item.order_number || '—')}</strong>
-          ${item.order_name ? `<div class="small">${escapeHtml(item.order_name)}</div>` : ''}</div>
+        <div class="d-flex gap-2 align-items-center min-w-0">
+          ${item.thumbnail_path ? `<div class="thumb-wrap"><img class="q-thumb" src="${escapeHtml(item.thumbnail_path)}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="${escapeHtml(item.thumbnail_path)}" title="Powiększ">⤢</button></div>` : ''}
+          <div class="min-w-0"><strong>${escapeHtml(item.order_number || '—')}</strong>
+          ${item.order_name ? `<div class="small text-truncate">${escapeHtml(item.order_name)}</div>` : ''}</div>
+        </div>
         <div class="d-flex align-items-start gap-1">
           <div class="match-slot" data-match-slot></div>
           <button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
                   title="Przywróć do puli (hasło)"
-                  data-item-id="${item.id}"
-                  data-job-id="${item.color_job_id || ''}"
+                  data-item-id="${item.id}" data-job-id="${item.color_job_id || ''}"
                   data-label="${escapeHtml(item.order_number || item.id)}">↩</button>
         </div>
       </div>
       <div class="match-details" data-match-details></div>`;
-    const beforeEl = beforeItemId
-      ? list.querySelector(`.draft-item[data-item-id="${beforeItemId}"]`)
-      : null;
-    if (beforeEl) list.insertBefore(el, beforeEl);
-    else list.appendChild(el);
+    const beforeEl = beforeItemId ? list.querySelector(`.draft-item[data-item-id="${beforeItemId}"]`) : null;
+    if (beforeEl) list.insertBefore(el, beforeEl); else list.appendChild(el);
     setDraftHint(item.machine);
     if (matchSource) reloadActiveMatch();
-  }
-
-  async function persistQueueOrder(listEl) {
-    const scope = listEl.dataset.scope;
-    const machine = listEl.dataset.machine;
-    if (!scope || !machine) return;
-    const selector = scope === 'live' ? '.queue-item[data-plan-id][draggable="true"]' : '.draft-item[data-item-id]';
-    const orderedIds = [...listEl.querySelectorAll(selector)].map(el =>
-      Number(scope === 'live' ? el.dataset.planId : el.dataset.itemId)
-    );
-    if (!orderedIds.length) return;
-    const res = await fetch('/planista/queue/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ scope, machine, ordered_ids: orderedIds }),
-    });
-    const data = await res.json().catch(() => ({ ok: false, error: 'Błąd odpowiedzi' }));
-    if (!res.ok || !data.ok) {
-      toast(data.error || 'Nie zapisano kolejności', false);
-      return;
-    }
-    toast(`Kolejność ${machine} zapisana`);
-  }
-
-  function prepPill(label, status) {
-    const st = (status || 'pending').toLowerCase();
-    const cls = st === 'ready' ? 'ready' : 'pending';
-    return `<span class="prep-pill ${cls}">${escapeHtml(label)} ${escapeHtml(st)}</span>`;
-  }
-
-  function liveQueueItemHtml(row) {
-    const active = row.status === 'in_progress';
-    const drag = active ? '' : 'draggable="true"';
-    const isAnchor = matchSource?.kind === 'live' && String(matchSource.planId) === String(row.id);
-    return `<div class="queue-item ${active ? 'in-progress' : ''} ${isAnchor ? 'match-anchor' : ''}"
-         data-plan-id="${row.id}"
-         data-machine="${escapeHtml(row.machine || '')}"
-         data-status="${escapeHtml(row.status || '')}"
-         data-color-job-id="${row.color_job_id == null ? '' : row.color_job_id}"
-         data-order-number="${escapeHtml(row.order_number || '')}"
-         ${drag}>
-      <div class="queue-item-head">
-        <div>
-          <strong>${escapeHtml(row.order_number || '—')}</strong>
-          <span class="opacity-75">· ${escapeHtml(row.status || '')}</span>
-          ${row.order_name ? `<div class="small">${escapeHtml(row.order_name)}</div>` : ''}
-          ${row.lub_number ? `<div class="small opacity-75">LUB ${escapeHtml(row.lub_number)}</div>` : ''}
-          <div class="mt-1">${prepPill('F', row.farby_prep_status)}${prepPill('P', row.polimery_prep_status)}</div>
-        </div>
-        <div class="d-flex align-items-start gap-1">
-          <div class="match-slot" data-match-slot></div>
-          ${active ? '' : `<button type="button" class="btn btn-sm btn-outline-danger py-0 btn-restore-pool"
-                  title="Przywróć do puli (hasło)"
-                  data-plan-id="${row.id}"
-                  data-job-id="${row.color_job_id == null ? '' : row.color_job_id}"
-                  data-label="${escapeHtml(row.order_number || row.id)}">↩</button>`}
-        </div>
-      </div>
-      <div class="match-details" data-match-details></div>
-    </div>`;
-  }
-
-  function setLiveStatus(ok, text) {
-    if (!els.liveStatus) return;
-    const cls = ok === true ? 'on' : (ok === false ? 'err' : '');
-    els.liveStatus.innerHTML =
-      `<span class="live-dot ${cls}" aria-hidden="true"></span>${escapeHtml(text)}`;
-  }
-
-  function queuesSignature(machinesPayload) {
-    return machines.map(m => {
-      const rows = machinesPayload?.[m] || [];
-      return m + ':' + rows.map(r => `${r.id}:${r.status}:${r.sort_order}:${r.farby_prep_status}:${r.polimery_prep_status}`).join(',');
-    }).join('|');
-  }
-
-  function renderLiveQueues(machinesPayload) {
-    machines.forEach(m => {
-      const list = document.querySelector(`.live-queue-list[data-machine="${m}"]`);
-      if (!list) return;
-      const rows = machinesPayload?.[m] || [];
-      list.dataset.sortBound = '0';
-      if (!rows.length) {
-        list.innerHTML = '<div class="small text-muted mb-2 live-empty">Brak aktywnych zleceń</div>';
-      } else {
-        list.innerHTML = rows.map(liveQueueItemHtml).join('');
-      }
-      list.dataset.sortBound = '0';
-      bindSortableList(list);
-    });
-    if (matchSource) reloadActiveMatch();
-  }
-
-  async function refreshLiveQueues({ force = false } = {}) {
-    if (livePollBusy || liveDragging || document.hidden) return;
-    livePollBusy = true;
-    try {
-      const res = await fetch('/planista/api/live-queues', {
-        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        setLiveStatus(false, 'Live — błąd odczytu kolejek maszyn');
-        return;
-      }
-      const sig = queuesSignature(data.machines);
-      const now = new Date();
-      const clock = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      if (force || sig !== liveSignature) {
-        liveSignature = sig;
-        renderLiveQueues(data.machines);
-        setLiveStatus(true, `Live · zsynchronizowano ${clock} (stan maszyn)`);
-      } else {
-        setLiveStatus(true, `Live · aktualne ${clock}`);
-      }
-    } catch (_) {
-      setLiveStatus(false, 'Live — brak połączenia');
-    } finally {
-      livePollBusy = false;
-    }
-  }
-
-  function bindSortableList(listEl) {
-    if (!listEl || listEl.dataset.sortBound === '1') return;
-    listEl.dataset.sortBound = '1';
-    let dragEl = null;
-
-    listEl.addEventListener('dragstart', e => {
-      const item = e.target.closest(listEl.dataset.scope === 'live' ? '.queue-item[draggable="true"]' : '.draft-item');
-      if (!item || !listEl.contains(item)) return;
-      if (e.target.closest('.btn-restore-pool, .btn-match-toggle')) {
-        e.preventDefault();
-        return;
-      }
-      dragEl = item;
-      if (listEl.dataset.scope === 'live') liveDragging = true;
-      item.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('application/x-pulse-reorder', JSON.stringify({
-        scope: listEl.dataset.scope,
-        machine: listEl.dataset.machine,
-        id: listEl.dataset.scope === 'live' ? item.dataset.planId : item.dataset.itemId,
-      }));
-      // Nie ustawiaj text/plain — żeby drop na tor nie dodał z puli
-      e.dataTransfer.setData('text/plain', '');
-    });
-
-    listEl.addEventListener('dragend', e => {
-      const item = e.target.closest('.queue-item, .draft-item');
-      item?.classList.remove('dragging');
-      listEl.querySelectorAll('.drag-target').forEach(el => el.classList.remove('drag-target'));
-      if (dragEl && listEl.contains(dragEl)) {
-        persistQueueOrder(listEl);
-      }
-      dragEl = null;
-      if (listEl.dataset.scope === 'live') {
-        liveDragging = false;
-        refreshLiveQueues({ force: true });
-      }
-    });
-
-    listEl.addEventListener('dragover', e => {
-      if (!dragEl || !listEl.contains(dragEl)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const item = e.target.closest(listEl.dataset.scope === 'live' ? '.queue-item[draggable="true"]' : '.draft-item');
-      listEl.querySelectorAll('.drag-target').forEach(el => el.classList.remove('drag-target'));
-      if (!item || item === dragEl) return;
-      item.classList.add('drag-target');
-      const rect = item.getBoundingClientRect();
-      const before = (e.clientY - rect.top) < rect.height / 2;
-      if (before) listEl.insertBefore(dragEl, item);
-      else listEl.insertBefore(dragEl, item.nextSibling);
-    });
-
-    listEl.addEventListener('drop', e => {
-      if (!dragEl) return;
-      e.preventDefault();
-      e.stopPropagation();
-    });
   }
 
   function removePoolJob(jobId) {
     const col = pool.querySelector(`.job-col[data-job-id="${jobId}"]`);
     if (!col) return;
-    const tile = col.querySelector('.job-tile');
-    if (tile) jobCache.set(String(jobId), { html: col.outerHTML });
+    jobCache.set(String(jobId), { html: col.outerHTML });
     col.remove();
     updatePoolMeta();
     hideZoom();
@@ -725,15 +763,15 @@
       updatePoolMeta();
       return;
     }
-    const colors = (job.colors || []).slice(0, 5).map(c => `<span class="color-chip">${escapeHtml(c)}</span>`).join('');
+    const colorsHtml = (job.colors || []).slice(0, 4).map(c => `<span class="color-chip">${escapeHtml(c)}</span>`).join('');
     const thumb = job.thumbnail_path
-      ? `<img class="job-thumb mb-2" src="${escapeHtml(job.thumbnail_path)}" alt="">`
-      : `<div class="job-thumb-empty mb-2"><i class="fas fa-file-pdf fa-lg"></i></div>`;
+      ? `<div class="thumb-wrap mb-1"><img class="job-thumb" src="${escapeHtml(job.thumbnail_path)}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="${escapeHtml(job.thumbnail_path)}" title="Powiększ">⤢</button></div>`
+      : `<div class="job-thumb-empty mb-1"><i class="fas fa-file-pdf"></i></div>`;
     const btns = machines.map(m =>
       `<button type="button" class="btn btn-outline-success btn-sm py-0 px-1 btn-assign" data-machine="${m}">+${m}</button>`
     ).join('');
     pool.insertAdjacentHTML('afterbegin', `
-      <div class="col-12 col-xxl-6 job-col" data-job-id="${job.id}">
+      <div class="job-col" data-job-id="${job.id}">
         <div class="job-tile" draggable="true"
              data-job-id="${job.id}"
              data-order-number="${escapeHtml(job.order_number || '')}"
@@ -741,20 +779,31 @@
              data-thumb="${escapeHtml(job.thumbnail_path || '')}"
              data-colors='${escapeHtml(JSON.stringify(job.colors || []))}'>
           ${thumb}
-          <div class="fw-semibold text-truncate">${escapeHtml(job.order_number || '—')}</div>
-          <div class="small text-muted text-truncate">${escapeHtml(job.order_name || '')}</div>
-          <div class="small">${job.color_count || 0} kolorów</div>
-          <div class="mt-1 job-colors">${colors}</div>
-          <div class="mt-2 d-flex flex-wrap gap-1 machine-btns">${btns}</div>
+          <div class="fw-semibold text-truncate" style="font-size:.8rem">${escapeHtml(job.order_number || '—')}</div>
+          <div class="text-muted text-truncate" style="font-size:.7rem">${escapeHtml(job.order_name || '')}</div>
+          <div style="font-size:.7rem">${job.color_count || 0} kolorów</div>
+          <div class="mt-1">${colorsHtml}</div>
+          <div class="mt-1 d-flex flex-wrap gap-1">${btns}</div>
         </div>
       </div>`);
     bindTile(pool.querySelector(`.job-col[data-job-id="${job.id}"] .job-tile`));
     updatePoolMeta();
   }
 
-  function clearMatchSelectionClasses() {
-    document.querySelectorAll('.job-tile.selected, .queue-item.match-anchor, .draft-item.match-anchor')
-      .forEach(el => el.classList.remove('selected', 'match-anchor'));
+  async function insertLiveJob(jobId, machine, { beforePlanId = null } = {}) {
+    const body = { job_id: Number(jobId), machine, also_draft: true };
+    if (beforePlanId) body.before_plan_id = Number(beforePlanId);
+    const res = await fetch('/planista/live/insert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'Błąd odpowiedzi' }));
+    if (!res.ok || !data.ok) { toast(data.error || 'Nie udało się wstawić', false); return; }
+    removePoolJob(jobId);
+    if (data.item) appendDraftItem(data.item);
+    toast(`Wstawiono ${data.live?.order_number || jobId} → ${machine}`);
+    await refreshLiveQueues({ force: true });
   }
 
   async function assignJob(jobId, machine, { beforeItemId = null } = {}) {
@@ -770,35 +819,6 @@
     removePoolJob(jobId);
     appendDraftItem(data.item, beforeItemId);
     toast(`Dodano ${data.item.order_number || jobId} → draft ${machine}`);
-    if (matchSource?.kind === 'pool' && String(matchSource.jobId) === String(jobId)) {
-      clearQueueMatches();
-      els.empty.style.display = 'block';
-      els.body.style.display = 'none';
-      anchor = null;
-      matchSource = null;
-      clearMatchSelectionClasses();
-    }
-  }
-
-  async function insertLiveJob(jobId, machine, { beforePlanId = null } = {}) {
-    const body = { job_id: Number(jobId), machine, also_draft: true };
-    if (beforePlanId) body.before_plan_id = Number(beforePlanId);
-    const res = await fetch('/planista/live/insert', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({ ok: false, error: 'Błąd odpowiedzi' }));
-    if (!res.ok || !data.ok) { toast(data.error || 'Nie udało się wstawić', false); return; }
-    removePoolJob(jobId);
-    if (data.item) appendDraftItem(data.item);
-    toast(`Wstawiono ${data.live?.order_number || jobId} → live ${machine}`);
-    await refreshLiveQueues({ force: true });
-    if (matchSource?.kind === 'pool' && String(matchSource.jobId) === String(jobId)) {
-      matchSource = null;
-      anchor = null;
-      clearMatchSelectionClasses();
-    }
   }
 
   function dropTargetBeforeId(listEl, clientY, itemSelector) {
@@ -809,117 +829,227 @@
         return listEl.dataset.scope === 'live' ? item.dataset.planId : item.dataset.itemId;
       }
     }
-    return null; // append
+    return null;
   }
 
-  let restorePending = null;
-  const restoreModalEl = document.getElementById('restorePoolModal');
-  const restoreModal = restoreModalEl ? bootstrap.Modal.getOrCreateInstance(restoreModalEl) : null;
-
-  function openRestoreModal({ itemId = null, planId = null, jobId = null, label = '' } = {}) {
-    restorePending = {
-      item_id: itemId ? Number(itemId) : null,
-      plan_id: planId ? Number(planId) : null,
-      job_id: jobId ? Number(jobId) : null,
-    };
-    const labelEl = document.getElementById('restorePoolLabel');
-    const passEl = document.getElementById('restorePoolPassword');
-    const errEl = document.getElementById('restorePoolError');
-    if (labelEl) labelEl.textContent = label || 'Wybrana praca';
-    if (passEl) passEl.value = '';
-    if (errEl) { errEl.textContent = ''; errEl.classList.add('d-none'); }
-    restoreModal?.show();
-    setTimeout(() => passEl?.focus(), 200);
-  }
-
-  async function confirmRestoreToPool() {
-    const passEl = document.getElementById('restorePoolPassword');
-    const errEl = document.getElementById('restorePoolError');
-    const password = passEl?.value || '';
-    if (!password) {
-      if (errEl) { errEl.textContent = 'Podaj hasło'; errEl.classList.remove('d-none'); }
-      return;
-    }
-    const body = { password };
-    if (restorePending?.item_id) body.item_id = restorePending.item_id;
-    if (restorePending?.plan_id) body.plan_id = restorePending.plan_id;
-    if (restorePending?.job_id) body.job_id = restorePending.job_id;
-    const res = await fetch('/planista/pool/restore', {
+  async function persistQueueOrder(listEl) {
+    const scope = listEl.dataset.scope;
+    const machine = listEl.dataset.machine;
+    if (!scope || !machine) return;
+    const selector = scope === 'live' ? '.q-row[data-plan-id][draggable="true"]' : '.draft-item[data-item-id]';
+    const orderedIds = [...listEl.querySelectorAll(selector)].map(el =>
+      Number(scope === 'live' ? el.dataset.planId : el.dataset.itemId)
+    );
+    if (!orderedIds.length) return;
+    const res = await fetch('/planista/queue/reorder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ scope, machine, ordered_ids: orderedIds }),
     });
-    const data = await res.json().catch(() => ({ ok: false, error: 'Błąd odpowiedzi' }));
-    if (!res.ok || !data.ok) {
-      if (errEl) { errEl.textContent = data.error || 'Nie przywrócono'; errEl.classList.remove('d-none'); }
-      return;
-    }
-    restoreModal?.hide();
-    (data.draft_removed_ids || []).forEach(id => {
-      document.querySelector(`.draft-item[data-item-id="${id}"]`)?.remove();
-    });
-    machines.forEach(setDraftHint);
-    if (data.job) restorePoolJob(data.job);
-    await refreshLiveQueues({ force: true });
-    toast(`Przywrócono do puli${data.live_removed?.length ? ' (zdjęto z maszyny)' : ''}`);
+    const data = await res.json().catch(() => ({ ok: false, error: 'Błąd' }));
+    if (!res.ok || !data.ok) { toast(data.error || 'Nie zapisano kolejności', false); return; }
+    toast(`Kolejność ${machine} zapisana`);
+    if (scope === 'live') await refreshLiveQueues({ force: true });
   }
 
-  document.getElementById('restorePoolConfirm')?.addEventListener('click', confirmRestoreToPool);
-  document.getElementById('restorePoolPassword')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); confirmRestoreToPool(); }
-  });
-
-  function clearQueueMatches() {
-    if (tracksScroll) tracksScroll.classList.remove('queue-matching-on');
-    document.querySelectorAll('.queue-item, .draft-item').forEach(item => {
-      const slot = item.querySelector('[data-match-slot]');
-      const details = item.querySelector('[data-match-details]');
-      if (slot) slot.innerHTML = '';
-      if (details) {
-        details.classList.remove('open');
-        details.innerHTML = '';
+  function bindSortableList(listEl) {
+    if (!listEl || listEl.dataset.sortBound === '1') return;
+    listEl.dataset.sortBound = '1';
+    let dragEl = null;
+    listEl.addEventListener('dragstart', e => {
+      const item = e.target.closest(listEl.dataset.scope === 'live' ? '.q-row[draggable="true"]' : '.draft-item');
+      if (!item || !listEl.contains(item)) return;
+      if (e.target.closest('.btn-restore-pool, [data-toggle-co], [data-toggle-match], [data-lightbox]')) {
+        e.preventDefault(); return;
+      }
+      dragEl = item;
+      if (listEl.dataset.scope === 'live') liveDragging = true;
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/x-pulse-reorder', JSON.stringify({
+        scope: listEl.dataset.scope,
+        machine: listEl.dataset.machine,
+        id: listEl.dataset.scope === 'live' ? item.dataset.planId : item.dataset.itemId,
+      }));
+      e.dataTransfer.setData('text/plain', '');
+    });
+    listEl.addEventListener('dragend', async () => {
+      dragEl?.classList.remove('dragging');
+      listEl.querySelectorAll('.drag-target').forEach(el => el.classList.remove('drag-target'));
+      if (dragEl && listEl.contains(dragEl)) await persistQueueOrder(listEl);
+      dragEl = null;
+      if (listEl.dataset.scope === 'live') {
+        liveDragging = false;
+        await refreshLiveQueues({ force: true });
       }
     });
+    listEl.addEventListener('dragover', e => {
+      if (!dragEl || !listEl.contains(dragEl)) return;
+      e.preventDefault(); e.stopPropagation();
+      const item = e.target.closest(listEl.dataset.scope === 'live' ? '.q-row[draggable="true"]' : '.draft-item');
+      listEl.querySelectorAll('.drag-target').forEach(el => el.classList.remove('drag-target'));
+      if (!item || item === dragEl) return;
+      item.classList.add('drag-target');
+      const rect = item.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      // Przesuwamy tylko wiersze — changeovery zostaną przebudowane po refresh
+      if (before) listEl.insertBefore(dragEl, item);
+      else listEl.insertBefore(dragEl, item.nextSibling);
+    });
+  }
+
+  function changeoverHtml(co) {
+    if (!co) return '<div class="changeover">↓ brak danych</div>';
+    if (!co.ok) return `<div class="changeover">↓ ${escapeHtml(co.message || 'Brak danych')}</div>`;
+    return `<div class="changeover">
+      ↓ ${co.shared_count} pozostaje | ${co.add_count} do zmiany
+      <button type="button" data-toggle-co>szczegóły</button>
+      <div class="changeover-details" data-co-details>
+        <div><strong>Wspólne</strong>: ${escapeHtml((co.shared || []).join(', ') || '—')}</div>
+        <div><strong>Schodzące</strong>: ${escapeHtml((co.only_prev || []).join(', ') || '—')}</div>
+        <div><strong>Do dodania</strong>: ${escapeHtml((co.only_next || []).join(', ') || '—')}</div>
+      </div>
+    </div>`;
+  }
+
+  function liveRowHtml(row, pos) {
+    const active = row.status === 'in_progress';
+    const isAnchor = matchSource?.kind === 'live' && String(matchSource.planId) === String(row.id);
+    return `<div class="q-row ${active ? 'in-progress' : ''} ${isAnchor ? 'match-anchor' : ''}"
+         data-plan-id="${row.id}" data-machine="${escapeHtml(row.machine || '')}"
+         data-status="${escapeHtml(row.status || '')}"
+         data-color-job-id="${row.color_job_id == null ? '' : row.color_job_id}"
+         data-order-number="${escapeHtml(row.order_number || '')}"
+         data-colors='${escapeHtml(JSON.stringify(row.colors || []))}'
+         ${active ? '' : 'draggable="true"'}>
+      <div class="q-pos">${pos}</div>
+      ${row.thumbnail_path
+        ? `<div class="thumb-wrap"><img class="q-thumb" src="${escapeHtml(row.thumbnail_path)}" alt=""><button type="button" class="btn-thumb-expand" data-lightbox="${escapeHtml(row.thumbnail_path)}" title="Powiększ">⤢</button></div>`
+        : `<div class="q-thumb-empty"><i class="fas fa-file-pdf"></i></div>`}
+      <div class="min-w-0">
+        <div class="fw-semibold text-truncate">${escapeHtml(row.order_number || '—')} <span class="fw-normal opacity-75">· ${escapeHtml(row.status || '')}</span></div>
+        <div class="text-truncate opacity-75">${escapeHtml(row.order_name || '')}</div>
+        <div>
+          <span class="prep-pill">${row.color_count || 0} kol.</span>
+          ${prepPill('F', row.farby_prep_status === 'ready')}
+          ${prepPill('P', row.polimery_prep_status === 'ready')}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="match-slot" data-match-slot></div>
+        ${active ? '' : `<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-restore-pool"
+            title="Przywróć do puli (hasło)" data-plan-id="${row.id}"
+            data-job-id="${row.color_job_id == null ? '' : row.color_job_id}"
+            data-label="${escapeHtml(row.order_number || row.id)}">↩</button>`}
+      </div>
+    </div>`;
+  }
+
+  function updateMachineHeader(machine, stats) {
+    const panel = document.querySelector(`.track[data-machine="${machine}"] .panel-h .meta`);
+    if (!panel || !stats) return;
+    panel.textContent =
+      `${stats.count || 0} prac · ${stats.colors_total || 0} kol. · prep ${stats.prep_pct || 0}% ` +
+      `(F ${stats.farby_ready || 0}/${stats.count || 0}, P ${stats.polimery_ready || 0}/${stats.count || 0})`;
+  }
+
+  function renderLiveQueues(payload) {
+    machines.forEach(m => {
+      const list = document.querySelector(`.live-queue-list[data-machine="${m}"]`);
+      if (!list) return;
+      const rows = payload.machines?.[m] || [];
+      const cos = payload.changeovers?.[m] || [];
+      updateMachineHeader(m, payload.stats?.[m]);
+      list.dataset.sortBound = '0';
+      if (!rows.length) {
+        list.innerHTML = '<div class="small text-muted live-empty">Brak aktywnych zleceń</div>';
+      } else {
+        let html = '';
+        rows.forEach((row, idx) => {
+          html += liveRowHtml(row, idx + 1);
+          if (idx < rows.length - 1) html += changeoverHtml(cos[idx]);
+        });
+        list.innerHTML = html;
+      }
+      bindSortableList(list);
+    });
+    if (matchSource) reloadActiveMatch();
+  }
+
+  function setLiveStatus(ok, text) {
+    if (!els.liveStatus) return;
+    const cls = ok === true ? 'on' : (ok === false ? 'err' : '');
+    els.liveStatus.innerHTML = `<span class="live-dot ${cls}"></span>${escapeHtml(text)}`;
+  }
+
+  function queuesSignature(payload) {
+    return machines.map(m => {
+      const rows = payload.machines?.[m] || [];
+      return m + ':' + rows.map(r => `${r.id}:${r.status}:${r.sort_order}:${r.farby_prep_status}:${r.polimery_prep_status}:${r.color_count}`).join(',');
+    }).join('|');
+  }
+
+  async function refreshLiveQueues({ force = false } = {}) {
+    if (livePollBusy || liveDragging || document.hidden) return;
+    livePollBusy = true;
+    try {
+      const res = await fetch('/planista/api/live-queues', {
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        setLiveStatus(false, 'Live — błąd odczytu');
+        return;
+      }
+      const sig = queuesSignature(data);
+      const clock = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      if (force || sig !== liveSignature) {
+        liveSignature = sig;
+        renderLiveQueues(data);
+        setLiveStatus(true, `Live · sync ${clock}`);
+      } else {
+        setLiveStatus(true, `Live · aktualne ${clock}`);
+      }
+    } catch (_) {
+      setLiveStatus(false, 'Live — brak połączenia');
+    } finally {
+      livePollBusy = false;
+    }
+  }
+
+  function clearQueueMatches() {
+    document.querySelectorAll('[data-match-slot]').forEach(slot => { slot.innerHTML = ''; });
+    document.querySelectorAll('[data-match-details]').forEach(d => { d.innerHTML = ''; d.classList?.remove?.('open'); });
   }
 
   function renderMatchOnItem(itemEl, entry) {
     const slot = itemEl.querySelector('[data-match-slot]');
-    const details = itemEl.querySelector('[data-match-details]');
-    if (!slot || !details) return;
+    if (!slot) return;
     const match = entry && entry.match;
     if (!match) {
-      slot.innerHTML = '<span class="match-badge band-none">brak kolorów</span>';
-      details.innerHTML = '';
-      details.classList.remove('open');
+      slot.innerHTML = '<span class="match-badge band-none">—</span>';
       return;
     }
     const band = match.band || 'low';
     const label = match.label || `${match.shared_count}/${match.selected_count} — ${Math.round(match.coverage_percent)}%`;
-    slot.innerHTML = `
-      <div class="text-end">
-        <span class="match-badge band-${escapeHtml(band)}">${escapeHtml(label)}</span>
-        <div><button type="button" class="btn-match-toggle" data-toggle-match>szczegóły</button></div>
-      </div>`;
-    details.innerHTML = `
-      <h6>Wspólne</h6>${chips(match.shared, 'chip-shared')}
-      <h6>Tylko wybrana</h6>${chips(match.only_selected, 'chip-left')}
-      <h6>Tylko w kolejce</h6>${chips(match.only_other, 'chip-right')}`;
+    slot.innerHTML = `<span class="match-badge band-${escapeHtml(band)}">${escapeHtml(label)}</span>`;
+    const details = itemEl.querySelector('[data-match-details]');
+    if (details) {
+      details.innerHTML = `
+        <div class="small mt-1"><strong>Wspólne</strong> ${chips(match.shared, 'chip-shared')}</div>
+        <div class="small"><strong>Tylko wybrana</strong> ${chips(match.only_selected, 'chip-left')}</div>
+        <div class="small"><strong>Tylko w kolejce</strong> ${chips(match.only_other, 'chip-right')}</div>`;
+    }
   }
 
   function applyQueueMatches(payload) {
-    if (tracksScroll) tracksScroll.classList.add('queue-matching-on');
-    // Nie sortujemy DOM — aktualizujemy istniejące elementy w ich miejscu.
     const byPlan = new Map();
     const byDraft = new Map();
     machines.forEach(m => {
-      (payload.machines?.[m] || []).forEach(entry => {
-        byPlan.set(String(entry.plan_id), entry);
-      });
-      (payload.drafts?.[m] || []).forEach(entry => {
-        byDraft.set(String(entry.item_id), entry);
-      });
+      (payload.machines?.[m] || []).forEach(e => byPlan.set(String(e.plan_id), e));
+      (payload.drafts?.[m] || []).forEach(e => byDraft.set(String(e.item_id), e));
     });
-    document.querySelectorAll('.queue-item[data-plan-id]').forEach(item => {
+    document.querySelectorAll('.q-row[data-plan-id]').forEach(item => {
       renderMatchOnItem(item, byPlan.get(String(item.dataset.planId)) || null);
     });
     document.querySelectorAll('.draft-item[data-item-id]').forEach(item => {
@@ -927,18 +1057,32 @@
     });
   }
 
-  function renderAnchor() {
-    if (!anchor) return;
-    els.anchorThumb.innerHTML = thumbHtml(anchor.thumbnail_path);
-    els.anchorTitle.textContent = anchor.order_number || anchor.id;
-    els.anchorSub.textContent = anchor.order_name || `${anchor.color_count || 0} kolorów`;
-    els.anchorColors.innerHTML = chips(anchor.colors || []);
-    els.anchorAssign.innerHTML = assignBtns(anchor.id);
+  function renderPlacementHints(hints) {
+    if (!els.placementHints) return;
+    if (!hints || !hints.length) {
+      els.placementHints.innerHTML = '<span class="text-muted">Brak wystarczających danych do sugestii (wymagane ≥40% pokrycia względem pozycji w kolejce).</span>';
+      return;
+    }
+    els.placementHints.innerHTML = hints.map(h =>
+      `<div class="mb-1"><strong>${escapeHtml(h.message)}</strong></div>`
+    ).join('');
   }
 
-  function showAssistant() {
-    els.empty.style.display = 'none';
-    els.body.style.display = 'block';
+  function clearMatchSelectionClasses() {
+    document.querySelectorAll('.job-tile.selected, .q-row.match-anchor, .draft-item.match-anchor')
+      .forEach(el => el.classList.remove('selected', 'match-anchor'));
+  }
+
+  function markMatchSource(source) {
+    clearMatchSelectionClasses();
+    matchSource = source;
+    if (source?.kind === 'pool' && source.jobId) {
+      pool.querySelector(`.job-tile[data-job-id="${source.jobId}"]`)?.classList.add('selected');
+    } else if (source?.kind === 'live' && source.planId) {
+      document.querySelector(`.q-row[data-plan-id="${source.planId}"]`)?.classList.add('match-anchor');
+    } else if (source?.kind === 'draft' && source.itemId) {
+      document.querySelector(`.draft-item[data-item-id="${source.itemId}"]`)?.classList.add('match-anchor');
+    }
   }
 
   function colorMatchQuery(source) {
@@ -949,39 +1093,41 @@
     return '';
   }
 
-  function markMatchSource(source) {
-    clearMatchSelectionClasses();
-    matchSource = source;
-    if (source?.kind === 'pool' && source.jobId) {
-      const tile = pool.querySelector(`.job-tile[data-job-id="${source.jobId}"]`);
-      tile?.classList.add('selected');
-    } else if (source?.kind === 'live' && source.planId) {
-      document.querySelector(`.queue-item[data-plan-id="${source.planId}"]`)?.classList.add('match-anchor');
-    } else if (source?.kind === 'draft' && source.itemId) {
-      document.querySelector(`.draft-item[data-item-id="${source.itemId}"]`)?.classList.add('match-anchor');
+  function renderAnchor() {
+    if (!anchor) return;
+    const url = anchor.thumbnail_path || '';
+    if (url) {
+      els.preview.src = url;
+      els.preview.dataset.lightbox = url;
+      els.preview.classList.remove('d-none');
+      els.thumbFallback.classList.add('d-none');
+    } else {
+      els.preview.classList.add('d-none');
+      els.thumbFallback.classList.remove('d-none');
     }
+    els.anchorTitle.textContent = anchor.order_number || anchor.id;
+    els.anchorSub.textContent = anchor.order_name || '';
+    els.anchorColorCount.textContent = `${anchor.color_count || (anchor.colors || []).length} kolorów`;
+    els.anchorColors.innerHTML = chips(anchor.colors || []);
+    els.anchorAssign.innerHTML = assignBtns(anchor.id);
   }
 
   async function loadColorMatchFromSource(source, previewJob) {
     markMatchSource(source);
-    showAssistant();
-    if (previewJob) {
-      anchor = previewJob;
-      renderAnchor();
-    }
-    els.matchStatus.textContent = 'Porównywanie z kolejkami D6 / D8 / D10…';
+    els.empty.style.display = 'none';
+    els.body.style.display = 'block';
+    if (previewJob) { anchor = previewJob; renderAnchor(); }
+    els.matchStatus.textContent = 'Porównywanie…';
     clearQueueMatches();
     const q = colorMatchQuery(source);
-    if (!q) {
-      els.matchStatus.textContent = 'Brak powiązania z katalogiem kolorów.';
-      return;
-    }
+    if (!q) { els.matchStatus.textContent = 'Brak powiązania z katalogiem kolorów.'; return; }
     const res = await fetch(`/planista/api/color-match?${q}`, {
       headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     });
     const data = await res.json().catch(() => null);
     if (!data?.ok) {
       els.matchStatus.textContent = data?.error || 'Brak danych dopasowania.';
+      renderPlacementHints([]);
       return;
     }
     anchor = {
@@ -992,20 +1138,13 @@
       colors: data.selected.colors || [],
       color_count: data.selected.color_count || 0,
     };
-    // Przy wyborze z kolejki nie sugerujemy przypisania do maszyny
     renderAnchor();
     if (source.kind !== 'pool') {
-      els.anchorAssign.innerHTML = '<span class="small text-muted">Porównanie względem innych pozycji w kolejkach</span>';
+      els.anchorAssign.innerHTML = '<span class="small text-muted">Porównanie względem kolejek — bez auto-przypisania</span>';
     }
     applyQueueMatches(data);
-    let liveN = 0, draftN = 0;
-    machines.forEach(m => {
-      liveN += (data.machines?.[m] || []).length;
-      draftN += (data.drafts?.[m] || []).length;
-    });
-    const srcLabel = source.kind === 'pool' ? 'pula' : (source.kind === 'live' ? 'live' : 'draft');
-    els.matchStatus.textContent =
-      `Źródło: ${srcLabel}. Pokrycie przy live ${liveN} / draft ${draftN} (kolejność bez zmian).`;
+    renderPlacementHints(data.placement_hints || []);
+    els.matchStatus.textContent = `Źródło: ${source.kind}. Pokrycie informacyjne przy pozycjach (kolejność bez zmian).`;
   }
 
   function reloadActiveMatch() {
@@ -1037,10 +1176,21 @@
     });
     tile.addEventListener('click', e => {
       if (e.target.closest('.btn-assign')) return;
-      loadColorMatchFromSource(
-        { kind: 'pool', jobId: Number(tile.dataset.jobId) },
-        jobFromTile(tile)
-      );
+      // Powiększenie tylko przez przycisk ⤢ — zwykły klik zawsze otwiera Color Matcher
+      const expand = e.target.closest('[data-lightbox]');
+      if (expand) {
+        e.preventDefault();
+        e.stopPropagation();
+        openLightbox(expand.getAttribute('data-lightbox') || tile.dataset.thumb);
+        return;
+      }
+      hideZoom();
+      loadColorMatchFromSource({ kind: 'pool', jobId: Number(tile.dataset.jobId) }, jobFromTile(tile));
+    });
+    tile.addEventListener('dblclick', e => {
+      if (e.target.closest('.btn-assign, [data-lightbox]')) return;
+      const url = tile.dataset.thumb;
+      if (url) openLightbox(url);
     });
     tile.addEventListener('mouseenter', e => showZoom(tile.dataset.thumb, e));
     tile.addEventListener('mousemove', e => showZoom(tile.dataset.thumb, e));
@@ -1048,7 +1198,6 @@
     tile.querySelectorAll('.btn-assign').forEach(btn => {
       btn.addEventListener('click', e => {
         e.preventDefault(); e.stopPropagation();
-        // Przycisk +Mx = wstaw na koniec live (od razu między/plan)
         insertLiveJob(tile.dataset.jobId, btn.dataset.machine);
       });
     });
@@ -1056,159 +1205,179 @@
 
   pool.querySelectorAll('.job-tile').forEach(bindTile);
 
-  if (tracksScroll) {
-    tracksScroll.addEventListener('dragover', e => {
-      const types = [...e.dataTransfer.types];
-      if (types.includes('application/x-pulse-reorder')) return;
-      if (!types.includes('application/x-pulse-pool-job') && !types.includes('text/plain')) return;
-      const listEl = e.target.closest('.live-queue-list, .draft-list');
-      if (!listEl) return;
-      e.preventDefault();
-      e.stopPropagation();
-      document.querySelectorAll('.pool-drop-target').forEach(el => {
-        if (el !== listEl) el.classList.remove('pool-drop-target');
-      });
-      listEl.classList.add('pool-drop-target');
-      listEl.querySelectorAll('.insert-before').forEach(el => el.classList.remove('insert-before'));
-      const sel = listEl.dataset.scope === 'live' ? '.queue-item[draggable="true"]' : '.draft-item';
-      const beforeId = dropTargetBeforeId(listEl, e.clientY, sel);
-      if (beforeId) {
-        const item = listEl.querySelector(
-          listEl.dataset.scope === 'live'
-            ? `.queue-item[data-plan-id="${beforeId}"]`
-            : `.draft-item[data-item-id="${beforeId}"]`
-        );
-        item?.classList.add('insert-before');
-      }
-    });
-    tracksScroll.addEventListener('drop', e => {
-      const types = [...e.dataTransfer.types];
-      if (types.includes('application/x-pulse-reorder')) return;
-      const listEl = e.target.closest('.live-queue-list, .draft-list');
-      const track = e.target.closest('.track');
-      const jobId = e.dataTransfer.getData('application/x-pulse-pool-job')
-        || e.dataTransfer.getData('text/plain');
-      document.querySelectorAll('.pool-drop-target, .insert-before').forEach(el => {
-        el.classList.remove('pool-drop-target', 'insert-before');
-      });
-      if (!jobId) return;
-      if (listEl) {
-        e.preventDefault();
-        e.stopPropagation();
-        const machine = listEl.dataset.machine;
-        const sel = listEl.dataset.scope === 'live' ? '.queue-item[draggable="true"]' : '.draft-item';
-        const beforeId = dropTargetBeforeId(listEl, e.clientY, sel);
-        if (listEl.dataset.scope === 'live') {
-          insertLiveJob(jobId, machine, { beforePlanId: beforeId });
-        } else {
-          assignJob(jobId, machine, { beforeItemId: beforeId });
+  // Drop z puli + move między maszynami
+  document.querySelector('.druk-bottom')?.addEventListener('dragover', e => {
+    const types = [...e.dataTransfer.types];
+    if (types.includes('application/x-pulse-reorder')) return;
+    const listEl = e.target.closest('.live-queue-list, .draft-list');
+    if (!listEl) return;
+    if (!types.includes('application/x-pulse-pool-job') && !types.includes('text/plain')) return;
+    e.preventDefault();
+    listEl.classList.add('pool-drop-target');
+  });
+  document.querySelector('.druk-bottom')?.addEventListener('dragleave', e => {
+    const listEl = e.target.closest('.live-queue-list, .draft-list');
+    if (listEl && !listEl.contains(e.relatedTarget)) listEl.classList.remove('pool-drop-target');
+  });
+  document.querySelector('.druk-bottom')?.addEventListener('drop', async e => {
+    const types = [...e.dataTransfer.types];
+    document.querySelectorAll('.pool-drop-target').forEach(el => el.classList.remove('pool-drop-target'));
+    if (types.includes('application/x-pulse-reorder')) {
+      // Cross-machine: jeśli przeciągnięto q-row na inną listę live
+      const listEl = e.target.closest('.live-queue-list');
+      const reorder = e.dataTransfer.getData('application/x-pulse-reorder');
+      if (!listEl || !reorder) return;
+      try {
+        const meta = JSON.parse(reorder);
+        if (meta.scope === 'live' && meta.machine !== listEl.dataset.machine) {
+          e.preventDefault();
+          const beforeId = dropTargetBeforeId(listEl, e.clientY, '.q-row[draggable="true"]');
+          const res = await fetch('/planista/queue/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ plan_id: Number(meta.id), machine: listEl.dataset.machine, before_plan_id: beforeId }),
+          });
+          const data = await res.json().catch(() => ({ ok: false }));
+          if (!res.ok || !data.ok) toast(data.error || 'Nie przeniesiono', false);
+          else { toast(`Przeniesiono → ${listEl.dataset.machine}`); await refreshLiveQueues({ force: true }); }
         }
-        return;
-      }
-      if (track) {
-        e.preventDefault();
-        insertLiveJob(jobId, track.dataset.machine);
-      }
-    });
-  }
-
-  document.querySelectorAll('.track').forEach(track => {
-    track.addEventListener('dragover', e => {
-      if ([...e.dataTransfer.types].includes('application/x-pulse-reorder')) return;
-      if (e.target.closest('.live-queue-list, .draft-list')) return;
-      e.preventDefault();
-      track.classList.add('drag-over');
-    });
-    track.addEventListener('dragleave', () => track.classList.remove('drag-over'));
-    track.addEventListener('drop', () => track.classList.remove('drag-over'));
+      } catch (_) {}
+      return;
+    }
+    const listEl = e.target.closest('.live-queue-list, .draft-list');
+    const track = e.target.closest('.track');
+    const jobId = e.dataTransfer.getData('application/x-pulse-pool-job') || e.dataTransfer.getData('text/plain');
+    if (!jobId) return;
+    e.preventDefault();
+    if (listEl) {
+      const beforeId = dropTargetBeforeId(listEl, e.clientY,
+        listEl.dataset.scope === 'live' ? '.q-row[draggable="true"]' : '.draft-item');
+      if (listEl.dataset.scope === 'live') insertLiveJob(jobId, listEl.dataset.machine, { beforePlanId: beforeId });
+      else assignJob(jobId, listEl.dataset.machine, { beforeItemId: beforeId });
+    } else if (track) {
+      insertLiveJob(jobId, track.dataset.machine);
+    }
   });
 
   document.querySelectorAll('.live-queue-list, .draft-list').forEach(bindSortableList);
 
-  document.querySelectorAll('.draft-list').forEach(list => {
-    list.addEventListener('click', e => {
-      const restoreBtn = e.target.closest('.btn-restore-pool');
-      if (restoreBtn) {
-        e.preventDefault();
-        e.stopPropagation();
-        openRestoreModal({
-          itemId: restoreBtn.dataset.itemId || restoreBtn.closest('.draft-item')?.dataset.itemId,
-          jobId: restoreBtn.dataset.jobId || restoreBtn.closest('.draft-item')?.dataset.jobId,
-          label: restoreBtn.dataset.label || '',
-        });
-        return;
-      }
-      if (e.target.closest('[data-toggle-match]')) return;
-      const row = e.target.closest('.draft-item');
-      if (!row) return;
-      const jobId = row.dataset.jobId ? Number(row.dataset.jobId) : null;
+  // Kliknięcia: match, restore, lightbox (tylko przycisk), changeover
+  document.querySelector('.druk-bottom')?.addEventListener('click', e => {
+    const lb = e.target.closest('button[data-lightbox], .btn-thumb-expand[data-lightbox]');
+    if (lb) { e.preventDefault(); e.stopPropagation(); openLightbox(lb.getAttribute('data-lightbox')); return; }
+    const restoreBtn = e.target.closest('.btn-restore-pool');
+    if (restoreBtn) {
+      e.preventDefault(); e.stopPropagation();
+      openRestoreModal({
+        planId: restoreBtn.dataset.planId,
+        itemId: restoreBtn.dataset.itemId,
+        jobId: restoreBtn.dataset.jobId,
+        label: restoreBtn.dataset.label || '',
+      });
+      return;
+    }
+    const coBtn = e.target.closest('[data-toggle-co]');
+    if (coBtn) {
+      const box = coBtn.closest('.changeover')?.querySelector('[data-co-details]');
+      box?.classList.toggle('open');
+      coBtn.textContent = box?.classList.contains('open') ? 'ukryj' : 'szczegóły';
+      return;
+    }
+    const draft = e.target.closest('.draft-item');
+    if (draft) {
+      const jobId = draft.dataset.jobId ? Number(draft.dataset.jobId) : null;
       loadColorMatchFromSource(
-        { kind: 'draft', itemId: Number(row.dataset.itemId), jobId },
-        jobId ? { id: jobId, order_number: row.dataset.orderNumber || '', order_name: '', colors: [], color_count: 0, thumbnail_path: '' } : null
+        { kind: 'draft', itemId: Number(draft.dataset.itemId), jobId },
+        jobId ? { id: jobId, order_number: draft.dataset.orderNumber || '', order_name: '', colors: JSON.parse(draft.dataset.colors || '[]'), color_count: 0, thumbnail_path: '' } : null
       );
-    });
-  });
-
-  if (tracksScroll) {
-    tracksScroll.addEventListener('click', e => {
-      const restoreBtn = e.target.closest('.btn-restore-pool');
-      if (restoreBtn) {
-        e.preventDefault();
-        e.stopPropagation();
-        openRestoreModal({
-          planId: restoreBtn.dataset.planId,
-          itemId: restoreBtn.dataset.itemId,
-          jobId: restoreBtn.dataset.jobId,
-          label: restoreBtn.dataset.label || '',
-        });
-        return;
-      }
-      const toggle = e.target.closest('[data-toggle-match]');
-      if (toggle) {
-        const item = toggle.closest('.queue-item, .draft-item');
-        const details = item?.querySelector('[data-match-details]');
-        if (!details) return;
-        details.classList.toggle('open');
-        toggle.textContent = details.classList.contains('open') ? 'ukryj' : 'szczegóły';
-        return;
-      }
-      const liveItem = e.target.closest('.queue-item');
-      if (!liveItem) return;
-      const planId = Number(liveItem.dataset.planId);
-      const jobId = liveItem.dataset.colorJobId ? Number(liveItem.dataset.colorJobId) : null;
+      return;
+    }
+    const live = e.target.closest('.q-row');
+    if (live) {
+      let colors = [];
+      try { colors = JSON.parse(live.dataset.colors || '[]'); } catch (_) {}
+      const planId = Number(live.dataset.planId);
+      const jobId = live.dataset.colorJobId ? Number(live.dataset.colorJobId) : null;
       loadColorMatchFromSource(
         { kind: 'live', planId, jobId },
-        {
-          id: jobId || planId,
-          order_number: liveItem.dataset.orderNumber || '',
-          order_name: '',
-          colors: [],
-          color_count: 0,
-          thumbnail_path: '',
-        }
+        { id: jobId || planId, order_number: live.dataset.orderNumber || '', order_name: '', colors, color_count: colors.length, thumbnail_path: live.querySelector('.q-thumb')?.src || '' }
       );
-    });
-  }
+    }
+  });
 
-  document.getElementById('assistantPanel').addEventListener('click', e => {
+  document.getElementById('assistantPanel')?.addEventListener('click', e => {
+    const lb = e.target.closest('[data-lightbox], #anchorPreview');
+    if (lb && (lb.dataset.lightbox || lb.src)) {
+      openLightbox(lb.dataset.lightbox || lb.src);
+      return;
+    }
     const btn = e.target.closest('.btn-assign-assist');
     if (!btn) return;
     insertLiveJob(btn.dataset.jobId, btn.dataset.machine);
   });
 
+  // Restore modal
+  let restorePending = null;
+  const restoreModalEl = document.getElementById('restorePoolModal');
+  const restoreModal = restoreModalEl ? bootstrap.Modal.getOrCreateInstance(restoreModalEl) : null;
+  function openRestoreModal({ itemId = null, planId = null, jobId = null, label = '' } = {}) {
+    restorePending = {
+      item_id: itemId ? Number(itemId) : null,
+      plan_id: planId ? Number(planId) : null,
+      job_id: jobId ? Number(jobId) : null,
+    };
+    document.getElementById('restorePoolLabel').textContent = label || 'Wybrana praca';
+    document.getElementById('restorePoolPassword').value = '';
+    const err = document.getElementById('restorePoolError');
+    err.textContent = ''; err.classList.add('d-none');
+    restoreModal?.show();
+  }
+  async function confirmRestoreToPool() {
+    const password = document.getElementById('restorePoolPassword').value || '';
+    const err = document.getElementById('restorePoolError');
+    if (!password) { err.textContent = 'Podaj hasło'; err.classList.remove('d-none'); return; }
+    const body = { password };
+    if (restorePending?.item_id) body.item_id = restorePending.item_id;
+    if (restorePending?.plan_id) body.plan_id = restorePending.plan_id;
+    if (restorePending?.job_id) body.job_id = restorePending.job_id;
+    const res = await fetch('/planista/pool/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'Błąd' }));
+    if (!res.ok || !data.ok) { err.textContent = data.error || 'Nie przywrócono'; err.classList.remove('d-none'); return; }
+    restoreModal?.hide();
+    (data.draft_removed_ids || []).forEach(id => document.querySelector(`.draft-item[data-item-id="${id}"]`)?.remove());
+    machines.forEach(setDraftHint);
+    if (data.job) restorePoolJob(data.job);
+    await refreshLiveQueues({ force: true });
+    toast('Przywrócono do puli');
+  }
+  document.getElementById('restorePoolConfirm')?.addEventListener('click', confirmRestoreToPool);
+  document.getElementById('restorePoolPassword')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmRestoreToPool(); }
+  });
+
   const rootInput = document.getElementById('planistaPdfRoot');
   const scanFolder = document.getElementById('planistaScanFolder');
-  if (rootInput && scanFolder) {
-    rootInput.addEventListener('change', () => { scanFolder.value = rootInput.value; });
-  }
+  if (rootInput && scanFolder) rootInput.addEventListener('change', () => { scanFolder.value = rootInput.value; });
+
+  // Lightbox also on przewijanie thumbs
+  document.getElementById('tab-przewijanie')?.addEventListener('click', e => {
+    const lb = e.target.closest('button[data-lightbox], .btn-thumb-expand[data-lightbox]');
+    if (lb) openLightbox(lb.getAttribute('data-lightbox'));
+  });
 
   updatePoolMeta();
   machines.forEach(setDraftHint);
-  refreshLiveQueues({ force: true });
-  setInterval(() => refreshLiveQueues(), LIVE_POLL_MS);
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshLiveQueues({ force: true });
-  });
+  if (document.getElementById('tab-drukarnia')?.classList.contains('active')) {
+    refreshLiveQueues({ force: true });
+    setInterval(() => refreshLiveQueues(), LIVE_POLL_MS);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshLiveQueues({ force: true });
+    });
+  }
 })();
 </script>
 </body>

@@ -219,9 +219,14 @@
                                         <button type="submit" class="btn btn-sm btn-outline-warning text-nowrap">Przenieś</button>
                                     </form>
                                     {% endif %}
-                                    <a href="/maszyna/{{ machine|lower }}/job/{{ p.id }}" class="btn btn-sm btn-outline-secondary">
-                                        <i class="fas fa-signature"></i> Wybierz
-                                    </a>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        <a href="/maszyna/{{ machine|lower }}/job/{{ p.id }}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="fas fa-signature"></i> Wybierz
+                                        </a>
+                                        <a href="/maszyna/{{ machine|lower }}/job/{{ p.id }}?open_pdf=1" class="btn btn-sm btn-outline-primary" title="Podgląd PDF wzoru">
+                                            <i class="fas fa-file-pdf"></i> PDF
+                                        </a>
+                                    </div>
                                 </div>
                             </td>
                         </tr>

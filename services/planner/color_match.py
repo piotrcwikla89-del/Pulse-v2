@@ -281,6 +281,9 @@ def match_selected_against_queues(
                 )
             drafts_out[machine] = items
 
+    from services.planner.changeover import placement_suggestions
+
+    hints = placement_suggestions(machines_out)
     return {
         "ok": True,
         "selected": {
@@ -293,6 +296,7 @@ def match_selected_against_queues(
         },
         "machines": machines_out,
         "drafts": drafts_out,
+        "placement_hints": hints,
         "thresholds": {
             "high": MATCH_THRESHOLD_HIGH,
             "mid": MATCH_THRESHOLD_MID,

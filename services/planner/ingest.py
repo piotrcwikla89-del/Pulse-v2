@@ -51,7 +51,53 @@ def _commit(cur) -> None:
         conn.commit()
 
 
-def scan_pdf_folder(cur, root: str | None = None, *, process: bool = True, limit: int = 50) -> ScanSummary:
+def requeue_weak_ingests(cur) -> int:
+    """Ponawia PDF ze statusem error oraz prace z 0 farbami / extraction_status=error."""
+
+    cur.execute(
+        """
+        UPDATE pdf_ingest_files
+        SET status='pending', last_error=NULL, scanned_at=?
+        WHERE status='error'
+        """,
+        (_now_iso(),),
+    )
+    n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    cur.execute(
+        """
+        SELECT DISTINCT i.id
+        FROM pdf_ingest_files i
+        LEFT JOIN color_jobs j ON j.id = i.color_job_id
+        WHERE i.status='done'
+          AND (
+            i.color_job_id IS NULL
+            OR COALESCE(j.color_count, 0) = 0
+            OR COALESCE(j.extraction_status, '') = 'error'
+          )
+        """
+    )
+    ids = [row["id"] if hasattr(row, "keys") else row[0] for row in cur.fetchall()]
+    for ingest_id in ids:
+        cur.execute(
+            """
+            UPDATE pdf_ingest_files
+            SET status='pending', last_error=NULL, scanned_at=?
+            WHERE id=?
+            """,
+            (_now_iso(), ingest_id),
+        )
+        n += 1
+    return n
+
+
+def scan_pdf_folder(
+    cur,
+    root: str | None = None,
+    *,
+    process: bool = True,
+    limit: int = 50,
+    requeue_weak: bool = True,
+) -> ScanSummary:
     """Rejestruje PDF z folderu w pdf_ingest_files; opcjonalnie od razu przetwarza kolejkę."""
 
     summary = ScanSummary()
@@ -61,6 +107,9 @@ def scan_pdf_folder(cur, root: str | None = None, *, process: bool = True, limit
         set_planner_setting(cur, "planner_last_scan_at", _now_iso())
         set_planner_setting(cur, "planner_last_scan_summary", summary.as_text())
         return summary
+
+    if requeue_weak:
+        summary.new_pending += requeue_weak_ingests(cur)
 
     root_path = Path(folder)
     for path in sorted(root_path.rglob("*.pdf")):
@@ -116,8 +165,17 @@ def scan_pdf_folder(cur, root: str | None = None, *, process: bool = True, limit
         summary.processed = proc["processed"]
         summary.failed = proc["failed"]
 
+    from services.planner.job_link import backfill_all_artworks, link_production_plans
+
+    backfill_all_artworks(cur)
+    link_report = link_production_plans(cur)
+    thumbs = refresh_existing_thumbnails(cur, limit=max(limit, 80), force=False)
+    extra = (
+        f" | powiązano planów={link_report.get('linked', 0)}"
+        f" | thumbs+={thumbs.get('updated', 0)}"
+    )
     set_planner_setting(cur, "planner_last_scan_at", _now_iso())
-    set_planner_setting(cur, "planner_last_scan_summary", summary.as_text())
+    set_planner_setting(cur, "planner_last_scan_summary", summary.as_text() + extra)
     _commit(cur)
     return summary
 
@@ -192,8 +250,19 @@ def _extract_and_store(cur, path: Path) -> int:
     engine = build_engine()
     result = engine.extract_separations(path, default_process_options(force=True))
     seps = list(result.separations or ())
-    order_number = result.order_number or result.filename_order_hint or path.stem
+    # Nazwa pliku (plate/SAP) ma pierwszeństwo — bardziej uniwersalne niż OCR treści.
+    from pdf_extractor_core.services.filenames import filename_order_hint
+    from services.planner.job_link import infer_artwork_number
+
+    file_hint, file_rev = filename_order_hint(path.name)
+    order_number = file_hint or result.order_number or result.filename_order_hint or path.stem
     order_name = result.job_name or path.stem
+    artwork = infer_artwork_number(
+        order_number=str(order_number),
+        order_name=str(order_name) if order_name else None,
+        filename=path.name,
+        document_revision=result.document_revision or file_rev,
+    )
     method = result.extraction_method.value if result.extraction_method else ""
     status_val = result.status.value if result.status else "ERROR"
     if status_val == "SUCCESS":
@@ -214,7 +283,7 @@ def _extract_and_store(cur, path: Path) -> int:
         """,
         (
             str(order_number),
-            result.document_revision,
+            artwork,
             None,
             str(order_name),
             str(path),
@@ -275,28 +344,57 @@ def _result_meta_json(result) -> str:
         return "{}"
 
 
-def _maybe_thumbnail(path: Path, file_hash: str) -> str | None:
-    """Zapisuje miniaturę pierwszej strony PDF (jeśli pymupdf dostępny)."""
+def _maybe_thumbnail(path: Path, file_hash: str, *, force: bool = False) -> str | None:
+    """Miniatura wyciętego wzoru (ew. z kolejnych stron) — bez wpływu na ekstrakcję farb."""
 
-    try:
-        import fitz
-    except ImportError:
-        return None
+    from services.planner.thumbnails import render_artwork_thumbnail, thumbnail_path_for
     from services.runtime_env import planner_thumbs_dir
 
     out_dir = planner_thumbs_dir()
-    out_path = out_dir / f"{file_hash[:16]}.png"
-    if out_path.exists():
-        return f"/media/planner_thumbs/{out_path.name}"
-    try:
-        doc = fitz.open(path)
-        if doc.page_count < 1:
-            doc.close()
-            return None
-        page = doc.load_page(0)
-        pix = page.get_pixmap(matrix=fitz.Matrix(0.25, 0.25), alpha=False)
-        pix.save(str(out_path))
-        doc.close()
-        return f"/media/planner_thumbs/{out_path.name}"
-    except Exception:  # noqa: BLE001
-        return None
+    out_path = thumbnail_path_for(file_hash, out_dir)
+    return render_artwork_thumbnail(path, out_path, force=force)
+
+
+def refresh_existing_thumbnails(cur, *, limit: int = 80, force: bool = True) -> dict[str, int]:
+    """Przebudowuje miniatury dla istniejących color_jobs (bez ponownej ekstrakcji farb)."""
+
+    cur.execute(
+        """
+        SELECT id, source_path, source_hash, thumbnail_path
+        FROM color_jobs
+        WHERE source_path IS NOT NULL AND source_path != ''
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    )
+    updated = 0
+    skipped = 0
+    failed = 0
+    for row in cur.fetchall():
+        job_id = row["id"] if hasattr(row, "keys") else row[0]
+        source = row["source_path"] if hasattr(row, "keys") else row[1]
+        file_hash = row["source_hash"] if hasattr(row, "keys") else row[2]
+        path = Path(str(source))
+        if not path.is_file():
+            skipped += 1
+            continue
+        if not file_hash:
+            try:
+                from pdf_extractor_core.services.hashing import file_sha256
+
+                file_hash = file_sha256(path)
+            except Exception:  # noqa: BLE001
+                failed += 1
+                continue
+        url = _maybe_thumbnail(path, str(file_hash), force=force)
+        if not url:
+            failed += 1
+            continue
+        cur.execute(
+            "UPDATE color_jobs SET thumbnail_path=?, updated_at=? WHERE id=?",
+            (url, _now_iso(), int(job_id)),
+        )
+        updated += 1
+    _commit(cur)
+    return {"updated": updated, "skipped": skipped, "failed": failed}

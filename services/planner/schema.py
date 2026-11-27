@@ -117,8 +117,10 @@ def create_planner_tables(cur, execute) -> None:
 
     _ensure_production_plans_color_job_id(cur, execute)
     from services.planner.queue_order import ensure_production_plans_sort_order
+    from services.planner.plan_excel import ensure_plan_import_schema
 
     ensure_production_plans_sort_order(cur, execute)
+    ensure_plan_import_schema(cur, execute)
     ensure_planner_settings(cur, execute)
 
 
