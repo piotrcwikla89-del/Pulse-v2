@@ -73,26 +73,20 @@
                         <table class="table table-sm table-hover">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Nr Zlecenia</th>
-                                    <th>Nr Artwork</th>
-                                    <th>Nr LUB</th>
-                                    <th>Nazwa Zlecenia</th>
-                                    <th>Laminat (Surowiec)</th>
-                                    <th>Ilość Metrów</th>
-                                    <th>Ilość Sztuk</th>
+                                    {% for col in op_columns %}
+                                    <th title="Kolumna {{ col.letter }}">{{ col.label }}</th>
+                                    {% endfor %}
+                                    <th>LUB</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for p in plans %}
                                 <tr>
-                                    <td><strong>{{ p.order_number }}</strong></td>
-                                    <td>{{ p.artwork_number }}</td>
-                                    <td>{{ p.lub_number }}</td>
-                                    <td>{{ p.order_name }}</td>
-                                    <td>{{ p.laminate }}</td>
-                                    <td class="text-end"><strong>{{ p.meters }}</strong></td>
-                                    <td class="text-end"><strong>{{ p.pieces }}</strong></td>
+                                    {% for cell in p.op_cells %}
+                                    <td title="{{ cell.raw }}">{% if loop.first %}<strong>{{ cell.value }}</strong>{% else %}{{ cell.value }}{% endif %}</td>
+                                    {% endfor %}
+                                    <td>{{ p.lub_number or '—' }}</td>
                                     <td><span class="badge bg-info">{{ p.status }}</span></td>
                                 </tr>
                                 {% endfor %}

@@ -163,20 +163,17 @@
         <div class="card-body">
             {% if plans %}
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
+                <table class="table table-hover align-middle table-sm plan-op-sheet">
                     <thead class="table-light">
                         <tr>
                             {% if show_prep_column %}
                             <th class="text-center" title="Status przygotowania asortymentu">Prep.</th>
                             {% endif %}
-                            <th>Nr Zlecenia</th>
-                            <th>Nr Artwork</th>
-                            <th>Nr LUB</th>
-                            <th>Nazwa Zlecenia</th>
-                            <th>Laminat (Surowiec)</th>
-                            <th class="text-end">Metry</th>
-                            <th class="text-end">Sztuki</th>
-                            <th style="min-width: 240px;">Akcje</th>
+                            {% for col in op_columns %}
+                            <th title="Kolumna {{ col.letter }}">{{ col.label }}</th>
+                            {% endfor %}
+                            <th>LUB</th>
+                            <th style="min-width: 220px;">Akcje</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -192,13 +189,10 @@
                                 </svg>
                             </td>
                             {% endif %}
-                            <td><strong>{{ p.order_number }}</strong></td>
-                            <td>{{ p.artwork_number }}</td>
-                            <td>{{ p.lub_number }}</td>
-                            <td>{{ p.order_name }}</td>
-                            <td>{{ p.laminate }}</td>
-                            <td class="text-end"><strong>{{ p.meters }}</strong></td>
-                            <td class="text-end"><strong>{{ p.pieces }}</strong></td>
+                            {% for cell in p.op_cells %}
+                            <td title="{{ cell.raw }}">{% if loop.first %}<strong>{{ cell.value }}</strong>{% else %}{{ cell.value }}{% endif %}</td>
+                            {% endfor %}
+                            <td>{{ p.lub_number or '—' }}</td>
                             <td>
                                 <div class="d-flex flex-column gap-2 align-items-start">
                                     {% if prep_ui %}
@@ -232,7 +226,7 @@
                         </tr>
                         {% if prep_ui %}
                         <tr class="collapse bg-light" id="mat-{{ p.id }}">
-                            <td colspan="{% if show_prep_column %}9{% else %}8{% endif %}">
+                            <td colspan="{% if show_prep_column %}{{ op_columns|length + 3 }}{% else %}{{ op_columns|length + 2 }}{% endif %}">
                                 <div class="p-3">
                                     <h6 class="text-secondary">Stan magazynu dla LUB: {{ p.lub_number or '—' }}</h6>
                                     {% if not p.lub_number %}

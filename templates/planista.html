@@ -325,33 +325,17 @@
         <!-- ========== DRUKARNIA ========== -->
         <section class="tab-panel {% if tab == 'drukarnia' %}active{% endif %}" id="tab-drukarnia">
             <div class="ingest-slim">
-                <form method="post" action="/planista/settings" class="d-flex gap-1 flex-wrap align-items-center flex-grow-1">
-                    <span class="opacity-75">PDF</span>
-                    <input type="text" name="pdf_root" id="planistaPdfRoot" class="form-control form-control-sm"
-                           style="max-width:260px" value="{{ settings.planner_pdf_root }}" placeholder="Folder PDF…">
-                    <button type="button" class="btn btn-sm btn-light" data-folder-picker="#planistaPdfRoot"><i class="fas fa-folder-open"></i></button>
-                    <input type="hidden" name="scan_interval_min" value="{{ settings.planner_scan_interval_min }}">
-                    <input type="hidden" name="watcher_enabled" value="{{ settings.planner_watcher_enabled }}">
-                    <button class="btn btn-sm btn-light" type="submit">Zapisz</button>
-                </form>
-                <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="d-flex gap-1 js-ingest-form" data-ingest-msg="Wgrywam i odczytuję PDF (OCR może chwilę potrwać)…">
-                    <input type="file" name="files" class="form-control form-control-sm" accept=".pdf,application/pdf" multiple style="max-width:160px" title="PDF" required>
-                    <button class="btn btn-sm btn-success" type="submit" title="Upload PDF"><i class="fas fa-upload"></i></button>
-                </form>
+                <span class="opacity-75">Import planu</span>
                 <form method="post" action="/planista/import-excel" enctype="multipart/form-data" class="d-flex gap-1 align-items-center flex-wrap js-ingest-form"
-                      data-ingest-msg="Importuję plan Excel (wszystkie kolumny)…"
-                      title="Excel planu ERP: 1. kolumna = maszyna, pozostałe kolumny trafiają do arkusza planu">
-                    <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="max-width:180px" required>
-                    <label class="small text-nowrap mb-0 opacity-75" title="Usuwa tylko status planned przed importem planu ERP">
+                      data-ingest-msg="Importuję plan Excel…"
+                      title="Jedyny import planisty: Excel ERP. PDF i skan katalogu — tylko w panelu admina.">
+                    <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="max-width:220px" required>
+                    <label class="small text-nowrap mb-0 opacity-75" title="Usuwa tylko status planned przed importem">
                         <input type="checkbox" name="replace_planned" value="1" class="form-check-input me-1"> Zastąp planned
                     </label>
-                    <button class="btn btn-sm btn-primary" type="submit" title="Import planu Excel"><i class="fas fa-file-excel"></i> Excel</button>
+                    <button class="btn btn-sm btn-primary" type="submit" title="Import planu Excel"><i class="fas fa-file-excel"></i> Import Excel</button>
                 </form>
-                <form method="post" action="/planista/scan" class="d-inline js-ingest-form" data-ingest-msg="Skanuję folder PDF i odświeżam ekstrakcje…">
-                    <input type="hidden" name="folder" id="planistaScanFolder" value="{{ settings.planner_pdf_root }}">
-                    <button class="btn btn-sm btn-warning" type="submit" title="Skan PDF + ponowienie słabych ekstrakcji + link plan↔PDF"><i class="fas fa-sync"></i> Skan</button>
-                </form>
-                <span class="opacity-75" title="pending / done / error">p{{ ingest_counts.get('pending', 0) }}/d{{ ingest_counts.get('done', 0) }}/e{{ ingest_counts.get('error', 0) }}</span>
+                <span class="opacity-75">Pula PDF: {{ jobs|length }} · powiązania z bazą kolorów / LUB</span>
                 {% if settings.planner_last_scan_summary %}
                 <span class="text-muted text-truncate" style="max-width:280px" title="{{ settings.planner_last_scan_summary }}">{{ settings.planner_last_scan_summary }}</span>
                 {% endif %}
@@ -412,7 +396,7 @@
                                 {% endfor %}
                             </div>
                             <div class="alert alert-secondary mb-0 pool-empty {% if not jobs %}visible{% endif %}" id="poolEmpty">
-                                Brak prac w puli. Zaimportuj PDF albo przywróć z kolejki (↩ + hasło).
+                                Brak prac w puli. Katalog PDF uzupełnia admin; tu przywróć z kolejki (↩ + hasło) lub powiąż z istniejącą bazą.
                             </div>
                         </div>
                     </div>

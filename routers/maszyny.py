@@ -475,7 +475,9 @@ def maszyna_plany(
         (machine.upper(),),
     )
     active_plan = cur.fetchone()
-    plans = enrich_plans_with_lub_materials(cur, plan_rows)
+    from services.planner.plan_display import attach_operator_view, operator_column_headers
+
+    plans = attach_operator_view(enrich_plans_with_lub_materials(cur, plan_rows))
     can_move = user["role"] in ("admin", "manager")
     other_machines = [m for m in PRODUCTION_MACHINES if m != machine.upper()]
     prep_ui = user["role"] in ("operator_mieszalni", "prepress")
@@ -491,6 +493,7 @@ def maszyna_plany(
         "error_msg": error,
         "prep_ui": prep_ui,
         "show_prep_column": show_prep_column,
+        "op_columns": operator_column_headers(),
     })
 
 
@@ -1378,18 +1381,19 @@ def submit_report(
 
 @router.get("/maszyna/{machine}/export-csv")
 def export_plany_csv(machine: str, user=Depends(require_auth), conn=Depends(get_db)):
+    from services.planner.plan_display import OPERATOR_PLAN_COLUMNS, attach_operator_view
+
     cur = conn.cursor()
     cur.execute(
-        """SELECT order_number, artwork_number, lub_number, order_name, laminate, meters, pieces
-           FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id""",
+        """SELECT * FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id""",
         (machine.upper(),),
     )
-    plans = cur.fetchall()
+    plans = attach_operator_view([dict(p) for p in cur.fetchall()])
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["numer_zlecenia", "numer_artwork", "numer_lub", "nazwa_zlecenia", "laminat", "ilosc_metrow", "ilosc_sztuk"])
+    writer.writerow([c["label"] for c in OPERATOR_PLAN_COLUMNS] + ["LUB"])
     for plan in plans:
-        writer.writerow(plan)
+        writer.writerow([c["raw"] if c["raw"] != "" else "" for c in plan["op_cells"]] + [plan.get("lub_number") or ""])
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -1497,13 +1501,16 @@ def maszyna_dodaj_raport_produkcji(
 def podglad_maszyna(machine: str, request: Request, user=Depends(require_auth), conn=Depends(get_db)):
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, order_number, artwork_number, lub_number, order_name, laminate, meters, pieces, status
-           FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id""",
+        """SELECT * FROM production_plans
+           WHERE machine=? AND status='planned' ORDER BY sort_order, id""",
         (machine.upper(),),
     )
-    plans = cur.fetchall()
+    from services.planner.plan_display import attach_operator_view, operator_column_headers
+
+    plans = attach_operator_view([dict(p) for p in cur.fetchall()])
     return render_template("maszyna_podglad.html", {
         "machine": machine.upper(),
         "plans": plans,
+        "op_columns": operator_column_headers(),
         "user": {"username": user["username"], "role": user["role"]},
     })

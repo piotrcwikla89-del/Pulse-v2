@@ -96,10 +96,13 @@ def przewijarka_plany(
         "SELECT * FROM production_plans WHERE machine=? AND status='planned' ORDER BY sort_order, id",
         (machine.upper(),),
     )
-    plans = [dict(p) for p in cur.fetchall()]
+    from services.planner.plan_display import attach_full_excel_view
+
+    plans, plan_columns = attach_full_excel_view([dict(p) for p in cur.fetchall()])
     return render_template("przewijarka_plany.html", {
         "machine": machine.upper(),
         "plans": plans,
+        "plan_columns": plan_columns,
         "user": {"username": user["username"], "role": user["role"]},
         "success_msg": success,
         "error_msg": error,
