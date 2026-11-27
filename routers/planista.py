@@ -212,21 +212,8 @@ def _remove_draft_items_for_job(cur, *, job_id: int | None, order_number: str | 
 
 def _serialize_job(job, colors: list[str] | None = None) -> dict:
     jid = int(_row_get(job, "id", 0))
+    # Bez regeneracji PDF w requeście HTTP — brak pliku = pusty thumb (worker odbuduje).
     thumb = _row_get(job, "thumbnail_path") or ""
-    if thumb:
-        try:
-            from services.planner.thumb_serve import ensure_job_thumbnail, find_thumb_file
-
-            name = str(thumb).rstrip("/").split("/")[-1]
-            if find_thumb_file(name) is None:
-                thumb = ensure_job_thumbnail(
-                    job_id=jid,
-                    source_path=_row_get(job, "source_path"),
-                    source_hash=_row_get(job, "source_hash"),
-                    thumbnail_path=str(thumb),
-                ) or ""
-        except Exception:  # noqa: BLE001
-            thumb = thumb or ""
     return {
         "id": jid,
         "order_number": _row_get(job, "order_number") or "",
@@ -424,8 +411,8 @@ def planista_scan(
         if folder:
             set_planner_setting(cur, "planner_pdf_root", folder)
             conn.commit()
-        summary = scan_pdf_folder(cur, folder or None, process=True, limit=120, requeue_weak=True)
-        link_report = link_production_plans(cur)
+        # Tylko rejestracja w kolejce — OCR robi background worker.
+        summary = scan_pdf_folder(cur, folder or None, process=False, limit=0, requeue_weak=True)
         conn.commit()
     except Exception as exc:  # noqa: BLE001
         try:
@@ -436,7 +423,6 @@ def planista_scan(
     msg = summary.as_text()
     if summary.missing_root:
         return RedirectResponse(f"/planista?error={_q(msg)}", status_code=303)
-    msg += f" | link plan↔PDF: +{link_report.get('linked', 0)}"
     return RedirectResponse(f"/planista?success={_q('Skan: ' + msg)}", status_code=303)
 
 
@@ -509,32 +495,12 @@ async def planista_upload_pdfs(
         saved += 1
     cur = conn.cursor()
     set_planner_setting(cur, "planner_pdf_root", str(staging))
-    summary = scan_pdf_folder(cur, str(staging), process=True, limit=80)
+    summary = scan_pdf_folder(cur, str(staging), process=False, limit=0)
     conn.commit()
     if saved == 0:
         return RedirectResponse("/planista?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
-    # Krótki status ekstrakcji po uploadzie — ile jobów z kolorami.
-    cur.execute(
-        """
-        SELECT
-          SUM(CASE WHEN color_count > 0 THEN 1 ELSE 0 END) AS with_colors,
-          SUM(CASE WHEN COALESCE(color_count,0)=0 THEN 1 ELSE 0 END) AS zero_colors
-        FROM color_jobs
-        """
-    )
-    row = cur.fetchone()
-    with_colors = int((_row_get(row, "with_colors", 0) or 0))
-    zero_colors = int((_row_get(row, "zero_colors", 1) or 0))
-    extra = f" Kolory: OK={with_colors}, brak={zero_colors}."
-    try:
-        import shutil
-
-        if shutil.which("tesseract") is None:
-            extra += " UWAGA: brak Tesseract OCR na serwerze — skany PDF bez tekstu będą miały 0 kolorów."
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(
-        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()}.{extra}')}",
+        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()} (OCR w workerze)')}",
         status_code=303,
     )
 
@@ -900,23 +866,7 @@ def _job_meta_for_plan(cur, plan_row, cache: dict) -> tuple[int | None, list[str
             stored = int(_row_get(jrow, "color_count", 1) or 0)
             if not count and stored:
                 count = stored
-            try:
-                from services.planner.thumb_serve import ensure_job_thumbnail
-
-                healed = ensure_job_thumbnail(
-                    job_id=int(cjid),
-                    source_path=_row_get(jrow, "source_path"),
-                    source_hash=_row_get(jrow, "source_hash"),
-                    thumbnail_path=str(thumb) if thumb else None,
-                )
-                if healed and healed != thumb:
-                    cur.execute(
-                        "UPDATE color_jobs SET thumbnail_path=? WHERE id=?",
-                        (healed, int(cjid)),
-                    )
-                thumb = healed or ""
-            except Exception:  # noqa: BLE001
-                pass
+            # Nie lecz miniatur w widoku planu — to blokowało całe HTTP po imporcie.
     return cjid, colors, thumb, count
 
 

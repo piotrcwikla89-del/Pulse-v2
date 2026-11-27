@@ -37,37 +37,17 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=os.path.join(get_base_path(), "static")), name="static")
 
-# Miniatury: trasa zamiast StaticFiles — przy braku pliku (Render /tmp) regeneruje z PDF.
+# Miniatury: tylko serwowanie gotowych plików. Regeneracja PDF = ocr_worker, nie HTTP.
 @app.get("/media/planner_thumbs/{filename:path}")
 def serve_planner_thumb(filename: str):
-    from fastapi.responses import FileResponse, RedirectResponse, Response
+    from fastapi.responses import FileResponse, Response
 
-    from services.planner.thumb_serve import (
-        find_thumb_file,
-        hash_prefix_from_filename,
-        regenerate_thumb_for_hash,
-    )
+    from services.planner.thumb_serve import find_thumb_file
 
-    # Zabezpieczenie przed path traversal
     name = filename.replace("\\", "/").split("/")[-1]
     path = find_thumb_file(name)
     if path is not None:
         return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
-
-    prefix = hash_prefix_from_filename(name)
-    if prefix:
-        url = regenerate_thumb_for_hash(prefix, force=True)
-        if url:
-            regenerated = find_thumb_file(url.rstrip("/").split("/")[-1])
-            if regenerated is not None:
-                if regenerated.name != name:
-                    return RedirectResponse(url, status_code=302)
-                return FileResponse(
-                    regenerated,
-                    media_type="image/png",
-                    headers={"Cache-Control": "private, max-age=86400"},
-                )
-
     return Response(status_code=404)
 
 

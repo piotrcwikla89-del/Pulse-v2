@@ -157,27 +157,34 @@ def scan_pdf_folder(
                     (_now_iso(), row_id),
                 )
 
-    # Commit rejestracji plików zanim wejdziemy w długi OCR.
+    # Commit rejestracji — ciężkie OCR/miniatury robi wyłącznie ocr_worker, nie HTTP.
     _commit(cur)
 
     if process:
-        # Krótka pierwsza partia — pełne OCR wielu PDF w jednym requeście kończy się 502.
         proc = process_ingest_queue(cur, limit=min(limit, 12), max_seconds=45.0)
         summary.processed = proc["processed"]
         summary.failed = proc["failed"]
+        from services.planner.job_link import backfill_all_artworks, link_production_plans
 
-    from services.planner.job_link import backfill_all_artworks, link_production_plans
+        backfill_all_artworks(cur)
+        link_report = link_production_plans(cur)
+        thumbs = refresh_existing_thumbnails(cur, limit=min(max(limit, 40), 80), force=False)
+        extra = (
+            f" | powiązano planów={link_report.get('linked', 0)}"
+            f" | thumbs+={thumbs.get('updated', 0)}"
+            f" | pending={pending_ingest_count(cur)}"
+        )
+    else:
+        # Szybka ścieżka HTTP: tylko kolejka pending, bez PDF/OCR/thumbs.
+        from services.planner.job_link import link_production_plans
 
-    backfill_all_artworks(cur)
-    link_report = link_production_plans(cur)
-    # Na Render pliki znikają — przebuduj brakujące / starą wersję agresywniej.
-    thumbs = refresh_existing_thumbnails(cur, limit=min(max(limit, 40), 80), force=False)
-    pending_left = pending_ingest_count(cur)
-    extra = (
-        f" | powiązano planów={link_report.get('linked', 0)}"
-        f" | thumbs+={thumbs.get('updated', 0)}"
-        f" | pending={pending_left}"
-    )
+        link_report = link_production_plans(cur)
+        extra = (
+            f" | powiązano planów={link_report.get('linked', 0)}"
+            f" | pending={pending_ingest_count(cur)}"
+            f" | OCR=worker"
+        )
+
     set_planner_setting(cur, "planner_last_scan_at", _now_iso())
     set_planner_setting(cur, "planner_last_scan_summary", summary.as_text() + extra)
     _commit(cur)

@@ -158,11 +158,11 @@
     </div>
 
     <div class="card shadow-sm mb-4">
-        <div class="card-header bg-dark text-white"><i class="fas fa-folder-open"></i> Katalog PDF (OCR partiami)</div>
+        <div class="card-header bg-dark text-white"><i class="fas fa-folder-open"></i> Katalog PDF</div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                Import PDF tylko stąd (nie z panelu planisty). OCR idzie <strong>partiami</strong>, żeby uniknąć błędu 502 na Renderze.
-                Po wgraniu / skanie kolejne partie dociągają się automatycznie.
+                Import PDF tylko stąd (nie z panelu planisty). Web tylko <strong>rejestruje</strong> pliki w kolejce —
+                OCR i miniatury robi osobny background worker, żeby nie blokować całego serwisu.
             </p>
             <div class="alert alert-light border py-2 small mb-3" id="pdfIngestStatus">
                 Kolejka:
@@ -206,7 +206,7 @@
             </form>
             <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
                 <button type="button" class="btn btn-outline-primary btn-sm" id="pdfProcessBatchBtn">
-                    <i class="fas fa-forward"></i> Przetwórz kolejną partię
+                    <i class="fas fa-sync"></i> Odśwież status kolejki
                 </button>
                 <a href="/planista" class="btn btn-outline-dark btn-sm"><i class="fas fa-clipboard-list"></i> Panel planisty</a>
             </div>
@@ -343,7 +343,6 @@
   const errorEl = document.getElementById('pdfError');
   const msgEl = document.getElementById('pdfBatchMsg');
   const btn = document.getElementById('pdfProcessBatchBtn');
-  let busy = false;
 
   function setCounts(data) {
     if (pendingEl && data.pending != null) pendingEl.textContent = data.pending;
@@ -351,11 +350,9 @@
     if (errorEl && data.error != null) errorEl.textContent = data.error;
   }
 
-  async function processBatch() {
-    if (busy) return null;
-    busy = true;
+  async function refreshQueue() {
     if (btn) btn.disabled = true;
-    if (msgEl) msgEl.textContent = 'Przetwarzam partię OCR…';
+    if (msgEl) msgEl.textContent = 'Odświeżam…';
     try {
       const res = await fetch('/admin/planner-process-batch', {
         method: 'POST',
@@ -363,49 +360,23 @@
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        if (msgEl) msgEl.textContent = data?.error || 'Błąd partii OCR';
-        return null;
+        if (msgEl) msgEl.textContent = data?.error || 'Błąd statusu kolejki';
+        return;
       }
       setCounts(data);
       if (msgEl) {
-        if (data.busy) {
-          msgEl.textContent = `OCR zajęty · zostało ${data.pending}`;
-        } else {
-          msgEl.textContent = data.pending > 0
-            ? `+${data.processed} OK / ${data.failed} err · zostało ${data.pending}`
-            : `Gotowe. Ostatnia partia +${data.processed}.`;
-        }
+        msgEl.textContent = data.pending > 0
+          ? `W kolejce ${data.pending} — przetwarza background worker`
+          : 'Kolejka pusta';
       }
-      return data;
     } catch (e) {
-      if (msgEl) msgEl.textContent = 'Brak połączenia podczas OCR';
-      return null;
+      if (msgEl) msgEl.textContent = 'Brak połączenia';
     } finally {
-      busy = false;
       if (btn) btn.disabled = false;
     }
   }
 
-  btn?.addEventListener('click', () => { processBatch(); });
-
-  async function drainQueue() {
-    // Wolne dociąganie: max ~1 PDF/partia, przerwa 3 s — UI i /health zostają responsywne.
-    for (let i = 0; i < 60; i++) {
-      const data = await processBatch();
-      if (!data) break;
-      if (data.busy) {
-        if (msgEl) msgEl.textContent = 'OCR zajęty innym workerem — czekam…';
-        await new Promise(r => setTimeout(r, 5000));
-        continue;
-      }
-      if (!data.pending) break;
-      await new Promise(r => setTimeout(r, 3000));
-    }
-  }
-
-  {% if pdf_continue %}
-  drainQueue();
-  {% endif %}
+  btn?.addEventListener('click', () => { refreshQueue(); });
 })();
 </script>
 </body>
