@@ -1,19 +1,40 @@
-"""Miniatury PDF: wybór strony ze wzorem + crop gęstego, kolorowego obszaru.
+"""Miniatury PDF: wybór strony ze wzorem (najlepiej z wymiarowaniem) + crop.
 
 Nie zmienia ekstrakcji farb — działa wyłącznie na warstwie podglądu.
-Preferuje strony z różnorodnością kolorów (wzór), a nie czarne separacje.
+Preferuje strony z pełnym wzorem i wymiarami (eyemarki, coty, linie wymiarowe),
+a nie czarne / monochromatyczne separacje.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-THUMB_VERSION = "v5"
-_MAX_PAGES = 12
+THUMB_VERSION = "v6"
+_MAX_PAGES = 28
 _PROBE_SCALE = 0.28
-_RENDER_SCALE = 1.4
+_RENDER_SCALE = 1.35
 _INK_THR = 248
 _ROW_COL_THR = 0.18
+_MIN_COLORFULNESS = 12.0
+_MIN_FALLBACK_COLOR = 8.0
+
+_LAYOUT_KEYWORDS = (
+    "eyemark",
+    "eye mark",
+    "eye-mark",
+    "wymiar",
+    "die cut",
+    "die-cut",
+    "cutter",
+    "scale",
+    "skala",
+    "trim",
+    "bleed",
+    "spad",
+    "mm",
+    " cm",
+)
 
 
 def thumbnail_url(file_hash: str) -> str:
@@ -38,7 +59,7 @@ def render_artwork_thumbnail(
         return None
     if not pdf_path.is_file():
         return None
-    if out_path.exists() and not force:
+    if out_path.exists() and not force and out_path.stat().st_size > 1500:
         return f"/media/planner_thumbs/{out_path.name}"
 
     try:
@@ -50,25 +71,23 @@ def render_artwork_thumbnail(
             return None
         ranked = _rank_pages(doc)
         pix = None
-        for page_index, clip, _score in ranked:
+        for page_index, clip, _score, layout in ranked:
             page = doc.load_page(page_index)
-            candidate = page.get_pixmap(
-                matrix=fitz.Matrix(_RENDER_SCALE, _RENDER_SCALE),
-                clip=clip,
-                alpha=False,
-            )
-            if candidate.width < 120 or candidate.height < 120:
+            candidate = _render_page(page, clip=clip)
+            if candidate is None:
                 continue
-            colorfulness = _pixmap_colorfulness(candidate.samples)
-            # Odrzuć prawie monochromatyczne / czarne separacje.
-            if colorfulness < 12.0:
+            if not _pixmap_is_usable(candidate, min_color=_MIN_COLORFULNESS):
                 continue
             pix = candidate
             break
+
         if pix is None:
-            page_index = ranked[0][0] if ranked else _pick_colorful_page(doc)
-            page = doc.load_page(page_index)
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0), alpha=False)
+            # Drugi przebieg: pełna strona najbardziej kolorowa / layoutowa — bez czerni.
+            fallback = _best_fullpage_candidate(doc, ranked)
+            if fallback is None:
+                return None
+            pix = fallback
+
         out_path.parent.mkdir(parents=True, exist_ok=True)
         pix.save(str(out_path))
         return f"/media/planner_thumbs/{out_path.name}"
@@ -78,17 +97,78 @@ def render_artwork_thumbnail(
         doc.close()
 
 
-def _rank_pages(doc) -> list[tuple[int, object, float]]:
-    ranked: list[tuple[int, object, float]] = []
+def _render_page(page, *, clip=None):
+    import fitz
+
+    kwargs = {
+        "matrix": fitz.Matrix(_RENDER_SCALE, _RENDER_SCALE),
+        "alpha": False,
+        "colorspace": fitz.csRGB,
+    }
+    if clip is not None:
+        kwargs["clip"] = clip
+    try:
+        return page.get_pixmap(**kwargs)
+    except Exception:  # noqa: BLE001
+        try:
+            return page.get_pixmap(
+                matrix=fitz.Matrix(_RENDER_SCALE, _RENDER_SCALE),
+                clip=clip,
+                alpha=False,
+            )
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def _rank_pages(doc) -> list[tuple[int, object, float, float]]:
+    ranked: list[tuple[int, object, float, float]] = []
     limit = min(int(doc.page_count), _MAX_PAGES)
     for index in range(limit):
         page = doc.load_page(index)
-        score, clip = _score_page(page)
+        score, clip, layout = _score_page(page)
         if clip is None or score <= 0:
             continue
-        ranked.append((index, clip, score))
+        ranked.append((index, clip, score, layout))
     ranked.sort(key=lambda item: item[2], reverse=True)
     return ranked
+
+
+def _best_fullpage_candidate(doc, ranked: list[tuple[int, object, float, float]]):
+    """Wybiera pełną stronę — najpierw wg rankingu, potem wg kolorowości; odrzuca czerń."""
+
+    tried: set[int] = set()
+    order: list[int] = [item[0] for item in ranked]
+    limit = min(int(doc.page_count), _MAX_PAGES)
+    for index in range(limit):
+        if index not in order:
+            order.append(index)
+
+    best_pix = None
+    best_score = -1.0
+    for page_index in order:
+        if page_index in tried:
+            continue
+        tried.add(page_index)
+        page = doc.load_page(page_index)
+        candidate = _render_page(page, clip=None)
+        if candidate is None:
+            continue
+        color = _pixmap_colorfulness(candidate.samples)
+        lum = _pixmap_mean_luminance(candidate.samples)
+        if color < _MIN_FALLBACK_COLOR and lum < 40:
+            continue
+        if not _pixmap_is_usable(candidate, min_color=_MIN_FALLBACK_COLOR):
+            continue
+        layout = 0.0
+        for item in ranked:
+            if item[0] == page_index:
+                layout = item[3]
+                break
+        score = color * 1.4 + layout * 2.5 + max(0.0, lum - 40) * 0.05
+        if score > best_score:
+            best_score = score
+            best_pix = candidate
+    return best_pix
 
 
 def _pick_colorful_page(doc) -> int:
@@ -100,20 +180,58 @@ def _pick_colorful_page(doc) -> int:
     for index in range(limit):
         page = doc.load_page(index)
         probe = page.get_pixmap(matrix=fitz.Matrix(0.15, 0.15), alpha=False)
-        score = _pixmap_colorfulness(probe.samples)
+        color = _pixmap_colorfulness(probe.samples)
+        layout = _layout_cue_score(page)
+        score = color + layout * 1.8
         if score > best_score:
             best_score = score
             best_i = index
     return best_i
 
 
-def _score_page(page) -> tuple[float, object | None]:
+def _score_page(page) -> tuple[float, object | None, float]:
     import fitz
 
+    layout = _layout_cue_score(page)
     probe = page.get_pixmap(matrix=fitz.Matrix(_PROBE_SCALE, _PROBE_SCALE), alpha=False)
     box = _colorful_band_box(probe.width, probe.height, probe.samples)
+    rect = page.rect
+
+    # Strony z wymiarowaniem / eyemarkami: pokazuj prawie cały wzór, nie ciasny crop.
+    if layout >= 12.0:
+        inset_x = max(2.0, rect.width * 0.015)
+        inset_y = max(2.0, rect.height * 0.015)
+        clip = fitz.Rect(
+            rect.x0 + inset_x,
+            rect.y0 + inset_y,
+            rect.x1 - inset_x,
+            rect.y1 - inset_y,
+        )
+        color = _pixmap_colorfulness(probe.samples)
+        dens = _ink_density(probe.samples, probe.width, 0, 0, probe.width - 1, probe.height - 1)
+        score = (
+            color * (0.55 + 0.45 * dens)
+            + layout * 4.2
+            + min(probe.width * probe.height, 180_000) / 40_000.0
+        )
+        if color < 8:
+            score *= 0.25
+        return score, clip, layout
+
     if box is None:
-        return 0.0, None
+        if layout > 0:
+            inset_x = max(2.0, rect.width * 0.02)
+            inset_y = max(2.0, rect.height * 0.02)
+            clip = fitz.Rect(
+                rect.x0 + inset_x,
+                rect.y0 + inset_y,
+                rect.x1 - inset_x,
+                rect.y1 - inset_y,
+            )
+            color = _pixmap_colorfulness(probe.samples)
+            return color * 0.4 + layout * 3.0, clip, layout
+        return 0.0, None, layout
+
     x0, y0, x1, y1 = box
     bw = x1 - x0 + 1
     bh = y1 - y0 + 1
@@ -122,6 +240,7 @@ def _score_page(page) -> tuple[float, object | None]:
     dens = _ink_density(probe.samples, probe.width, x0, y0, x1, y1)
     # Kolorowość dominuje — czarne płyty mają wysoką gęstość, ale niski color.
     score = color * (0.45 + 0.55 * min(area, 0.85)) * (0.55 + 0.45 * dens)
+    score += layout * 3.5
     if color < 10:
         score *= 0.15
     if 0.12 <= area <= 0.75:
@@ -129,7 +248,6 @@ def _score_page(page) -> tuple[float, object | None]:
     elif area > 0.92:
         score *= 0.75
 
-    rect = page.rect
     clip = fitz.Rect(
         rect.x0 + (x0 / probe.width) * rect.width,
         rect.y0 + (y0 / probe.height) * rect.height,
@@ -145,8 +263,94 @@ def _score_page(page) -> tuple[float, object | None]:
         min(rect.y1, clip.y1 + pad_y),
     )
     if clip.width < 20 or clip.height < 20:
-        return 0.0, None
-    return score, clip
+        return 0.0, None, layout
+    return score, clip, layout
+
+
+def _layout_cue_score(page) -> float:
+    """Ocena „to wygląda jak strona wzoru z wymiarowaniem”, niezależna od numeru strony."""
+
+    score = 0.0
+    try:
+        text = (page.get_text("text") or "").lower()
+    except Exception:  # noqa: BLE001
+        text = ""
+
+    for keyword in _LAYOUT_KEYWORDS:
+        if keyword in text:
+            score += 7.0 if "eye" in keyword else 4.5
+
+    nums = re.findall(r"\b\d{1,4}(?:[.,]\d{1,2})?\b", text)
+    # Coty / wymiary to zwykle dużo krótkich liczb (6.5, 27.5, 113…).
+    if len(nums) >= 6:
+        score += min(22.0, 1.1 * len(nums))
+
+    unit_hits = len(re.findall(r"\b\d+(?:[.,]\d+)?\s*(?:mm|cm)\b", text))
+    score += min(12.0, unit_hits * 3.0)
+
+    try:
+        drawings = page.get_drawings() or []
+    except Exception:  # noqa: BLE001
+        drawings = []
+    n_draw = len(drawings)
+    if n_draw >= 25:
+        score += min(18.0, n_draw * 0.08)
+    elif n_draw >= 8:
+        score += n_draw * 0.05
+
+    # Wiele cienkich linii / prostokątów = typowa siatka wymiarowa / panele saszetki.
+    thin_lines = 0
+    for drawing in drawings[:400]:
+        for item in drawing.get("items") or ():
+            kind = item[0] if item else None
+            if kind == "l":
+                thin_lines += 1
+            elif kind == "re":
+                thin_lines += 0.5
+    if thin_lines >= 20:
+        score += min(14.0, thin_lines * 0.08)
+
+    # Obrazy rastrowe na stronie (często podkład wzoru).
+    try:
+        images = page.get_images(full=True) or []
+    except Exception:  # noqa: BLE001
+        images = []
+    if images:
+        score += min(10.0, 3.0 * len(images))
+
+    return score
+
+
+def _pixmap_is_usable(pix, *, min_color: float) -> bool:
+    if pix is None:
+        return False
+    if pix.width < 120 or pix.height < 120:
+        return False
+    samples = pix.samples
+    color = _pixmap_colorfulness(samples)
+    if color < min_color:
+        return False
+    lum = _pixmap_mean_luminance(samples)
+    # Prawie czarna płyta (separacja K / czarny solid) — odrzuć.
+    if lum < 32 and color < 28:
+        return False
+    # Prawie jednolita czerń / szarość bez saturacji.
+    if lum < 22:
+        return False
+    return True
+
+
+def _pixmap_mean_luminance(samples) -> float:
+    n = max(len(samples) // 3, 1)
+    step = max(1, n // 3500)
+    total = 0.0
+    count = 0
+    for i in range(0, n, step):
+        o = i * 3
+        r, g, b = samples[o], samples[o + 1], samples[o + 2]
+        total += 0.2126 * r + 0.7152 * g + 0.0722 * b
+        count += 1
+    return total / max(count, 1)
 
 
 def _is_ink(samples, offset: int) -> bool:

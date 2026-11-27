@@ -87,7 +87,7 @@
         .job-tile.selected { outline: 2px solid var(--pulse-blue); }
         .job-thumb {
             width: 100%; aspect-ratio: 3/4; max-height: 210px; object-fit: contain; border-radius: 6px;
-            background:#0f1720; cursor: pointer;
+            background:#eef3f8; cursor: pointer;
         }
         .job-thumb-empty {
             display:flex; align-items:center; justify-content:center; color:#8aa0b5;
@@ -104,7 +104,7 @@
         /* Matcher */
         .matcher-empty { color: var(--pulse-muted); font-size: .9rem; padding: 1rem .25rem; }
         .matcher-preview {
-            width: 100%; max-height: 280px; object-fit: contain; background:#0f1720;
+            width: 100%; max-height: 280px; object-fit: contain; background:#eef3f8;
             border-radius: 8px; cursor: zoom-in;
         }
         .thumb-wrap { position: relative; display: block; width: 100%; }
@@ -146,7 +146,7 @@
         .q-row.match-anchor { outline: 2px solid var(--pulse-blue); }
         .q-pos { font-weight: 700; color: var(--pulse-muted); text-align:center; }
         .q-thumb {
-            width: 52px; height: 64px; object-fit: contain; border-radius: 5px; background:#0f1720; cursor: pointer;
+            width: 52px; height: 64px; object-fit: contain; border-radius: 5px; background:#eef3f8; cursor: pointer;
         }
         .q-thumb-empty {
             width: 52px; height: 64px; border-radius: 5px; background:#eef3f8; display:flex;
@@ -635,6 +635,24 @@
   const lightbox = document.getElementById('pdfLightbox');
   const lightboxImg = lightbox.querySelector('img');
   const jobCache = new Map();
+
+  // Zepsute / brakujące miniatury → placeholder zamiast czarnego tła.
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    if (!img.classList.contains('job-thumb') && !img.classList.contains('q-thumb') && !img.classList.contains('matcher-preview')) {
+      return;
+    }
+    const wrap = img.closest('.thumb-wrap');
+    const empty = document.createElement('div');
+    empty.className = img.classList.contains('q-thumb') ? 'q-thumb-empty' : 'job-thumb-empty';
+    empty.innerHTML = '<i class="fas fa-file-pdf"></i>';
+    if (wrap) {
+      wrap.replaceWith(empty);
+    } else {
+      img.replaceWith(empty);
+    }
+  }, true);
 
   let anchor = null;
   let matchSource = null;

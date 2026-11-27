@@ -169,7 +169,9 @@ def scan_pdf_folder(
 
     backfill_all_artworks(cur)
     link_report = link_production_plans(cur)
-    thumbs = refresh_existing_thumbnails(cur, limit=max(limit, 80), force=False)
+    # force=False wystarczy przy nowej THUMB_VERSION (nowa ścieżka pliku),
+    # a brakujący/zbyt mały PNG i tak jest przebudowywany w render_artwork_thumbnail.
+    thumbs = refresh_existing_thumbnails(cur, limit=max(limit, 120), force=False)
     extra = (
         f" | powiązano planów={link_report.get('linked', 0)}"
         f" | thumbs+={thumbs.get('updated', 0)}"
@@ -387,7 +389,16 @@ def refresh_existing_thumbnails(cur, *, limit: int = 80, force: bool = True) -> 
             except Exception:  # noqa: BLE001
                 failed += 1
                 continue
-        url = _maybe_thumbnail(path, str(file_hash), force=force)
+        # Przebuduj, gdy brak miniatury, stara wersja w URL albo force.
+        from services.planner.thumbnails import THUMB_VERSION
+
+        old_thumb = ""
+        try:
+            old_thumb = str(row["thumbnail_path"] if hasattr(row, "keys") else row[3] or "")
+        except Exception:  # noqa: BLE001
+            old_thumb = ""
+        needs_rebuild = force or (f"_{THUMB_VERSION}.png" not in old_thumb)
+        url = _maybe_thumbnail(path, str(file_hash), force=needs_rebuild)
         if not url:
             failed += 1
             continue
