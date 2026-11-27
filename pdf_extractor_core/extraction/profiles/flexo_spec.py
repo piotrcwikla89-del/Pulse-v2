@@ -404,9 +404,15 @@ def _ocr_color_coverage_separations(
                     continue
             badge = _number_for(name_words[0], numbers)
             station, peeled = _peel_station(name_words)
+            # ``name`` już zawiera sufiks ``P456 2``. Nie przepuszczaj przez
+            # ``_join_color_name`` — ono zjada trailing ``2`` jako śmieć OCR.
+            if station is not None:
+                color_name = _join_color_name(peeled) or name
+            else:
+                color_name = name
             paired.append(
                 ParsedSeparation(
-                    color_name=name if not peeled else _join_color_name(peeled) or name,
+                    color_name=color_name,
                     coverage=coverage,
                     raw_coverage=raw_coverage,
                     separation_number=badge if badge is not None else station,
@@ -457,7 +463,34 @@ def _coverage_right_of(
                 coverage = Decimal(match.group("coverage").replace(",", "."))
             except InvalidOperation:
                 continue
+            # 0.00% z pustej stacji / sąsiedniej kolumny — szukaj dalej.
+            if coverage == 0:
+                continue
             return coverage, f"{match.group('coverage')}%", limited
+    # OCR często tnie ``16.28%`` na ``75/16`` + ``28%``.
+    split_pct = re.search(r"(\d{1,2})\s+(\d{2})\s*%", joined)
+    slash_split = re.search(r"/\s*(\d{1,2})\s+(\d{2})\s*%", joined)
+    recover = slash_split or split_pct
+    if recover and "/" in joined:
+        try:
+            coverage = Decimal(f"{recover.group(1)}.{recover.group(2)}")
+        except InvalidOperation:
+            coverage = None
+        if coverage is not None and 0 < coverage < 100:
+            return coverage, f"{recover.group(1)}.{recover.group(2)}%", limited
+    # Preferuj niezerowe % najbliżej nazwy (lewa kolumna), nie 0.00% z pustej komórki.
+    nonzero = None
+    for match in re.finditer(r"(\d+(?:[.,]\d+)?)\s*%", joined):
+        try:
+            coverage = Decimal(match.group(1).replace(",", "."))
+        except InvalidOperation:
+            continue
+        if coverage == 0:
+            continue
+        nonzero = coverage, f"{match.group(1)}%", limited
+        break
+    if nonzero is not None:
+        return nonzero
     match = re.search(r"(\d+(?:[.,]\d+)?)\s*%", joined)
     if match:
         try:
