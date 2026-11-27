@@ -95,7 +95,10 @@ def log_production_operation(cur, operation_type, description, machine=None, pla
 # ==================== DATY / ALERTY ====================
 
 def alert_daty(data_val) -> str:
-    """Akceptuje str (SQLite) lub date/datetime (PostgreSQL / sterowniki DB)."""
+    """Akceptuje str (SQLite) lub date/datetime (PostgreSQL / sterowniki DB).
+
+    Sentinel ``0`` / pusta data = brak daty produkcji (bez alertu).
+    """
     if not data_val:
         return "ok"
     if isinstance(data_val, datetime):
@@ -103,7 +106,13 @@ def alert_daty(data_val) -> str:
     elif isinstance(data_val, date):
         d = data_val
     else:
-        d = datetime.strptime(str(data_val).strip()[:10], "%Y-%m-%d").date()
+        text = str(data_val).strip()
+        if not text or text in ("0", "-", "None", "null"):
+            return "ok"
+        try:
+            d = datetime.strptime(text[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return "ok"
     dni = (local_today() - d).days
     if dni > 365:
         return "przeterminowana"
@@ -152,6 +161,8 @@ def filtruj_farby(dane, search_field: str, search_value: str, filtr_alert: str, 
             elif search_field == "pantone" and search_value.lower() not in f["pantone"].lower():
                 continue
             elif search_field == "polka" and search_value.lower() not in (f["polka"] or "").lower():
+                continue
+            elif search_field == "artwork" and search_value.lower() not in (f.get("artwork") or "").lower():
                 continue
 
         farby.append({**dict(f), "alert": alert})

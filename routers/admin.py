@@ -177,15 +177,45 @@ def import_farby(
     admin=Depends(require_admin),
     conn=Depends(get_db),
 ):
+    """CSV (stary) albo Excel Magazyn_farb_resztkowych (.xlsx/.xlsm) — replace żywego stanu."""
+
+    from urllib.parse import quote
+
+    name = (plik.filename or "").lower()
+    cur = conn.cursor()
     try:
-        content = plik.file.read().decode("utf-8")
+        raw = plik.file.read()
+        if name.endswith(".xlsx") or name.endswith(".xlsm"):
+            from services.magazyn_import import import_magazyn_excel
+
+            report = import_magazyn_excel(
+                cur,
+                raw,
+                imported_by=request.session.get("username") or "admin",
+            )
+            if report.errors:
+                conn.rollback()
+                return RedirectResponse(
+                    f"/admin?error={quote(report.errors[0])}",
+                    status_code=303,
+                )
+            conn.commit()
+            return RedirectResponse(
+                f"/admin?success={quote(report.as_text())}",
+                status_code=303,
+            )
+
+        from services.magazyn_import import ensure_farby_artwork_column
+
+        ensure_farby_artwork_column(cur)
+        content = raw.decode("utf-8")
         reader = csv.DictReader(io.StringIO(content))
-        cur = conn.cursor()
         count = 0
         for row in reader:
             pantone = row.get("pantone") or row.get("pantone".upper()) or row.get("PANTONE")
             lub = row.get("lub", "")
             polka = row.get("polka", "")
+            artwork = row.get("artwork", "") or row.get("Artwork", "")
             waga = row.get("waga")
             data_produkcji = row.get("data_produkcji") or row.get("data_produkcji".replace("_", ""))
             if not pantone or not waga or not data_produkcji:
@@ -195,15 +225,19 @@ def import_farby(
             except ValueError:
                 continue
             cur.execute(
-                "INSERT INTO farby (pantone, lub, polka, waga, status, data_produkcji) VALUES (?, ?, ?, ?, 'dostepna', ?)",
-                (pantone, lub, polka, waga_val, data_produkcji),
+                "INSERT INTO farby (pantone, lub, artwork, polka, waga, status, data_produkcji) VALUES (?, ?, ?, ?, ?, 'dostepna', ?)",
+                (pantone, lub, artwork or None, polka, waga_val, data_produkcji),
             )
             dodaj_operacje(cur, "przyjęcie", pantone, str(waga_val), polka, "", cur.lastrowid)
             count += 1
         conn.commit()
         return RedirectResponse(f"/admin?success=Zaimportowano+{count}+farb", status_code=303)
     except Exception as e:
-        return RedirectResponse(f"/admin?error=Błąd+importu+farb:+{str(e)}", status_code=303)
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return RedirectResponse(f"/admin?error={quote('Błąd importu farb: ' + str(e)[:200])}", status_code=303)
 
 
 @router.post("/import_polimery")

@@ -102,6 +102,7 @@ def migrate_schema(cur):
         migrate_schema_postgres(cur)
         return
     migrations = {
+        "farby": [("artwork", "TEXT")],
         "operacje": [("farba_id", "INTEGER")],
         "production_reports": [("plan_id", "INTEGER")],
         "print_control_reports": [("plan_id", "INTEGER")],
@@ -272,10 +273,11 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pantone TEXT NOT NULL,
             lub TEXT,
+            artwork TEXT,
             polka TEXT,
             waga REAL NOT NULL,
             status TEXT NOT NULL DEFAULT 'dostepna',
-            data_produkcji DATE NOT NULL
+            data_produkcji TEXT NOT NULL
         )
     """)
     execute(cur, """

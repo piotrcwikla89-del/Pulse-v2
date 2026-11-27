@@ -1,9 +1,10 @@
 <tr data-id="{{ f.id }}" class="{% if f.status == 'zutylizowana' %}utylizowana-row{% elif f.alert == 'przeterminowana' %}table-danger{% elif f.alert == 'uwaga' %}table-warning{% endif %}">
     <td>{{ f.pantone }}</td>
     <td>{{ f.lub }}</td>
+    <td>{{ f.artwork or '—' }}</td>
     <td>{{ f.polka }}</td>
     <td class="waga-cell">{{ f.waga }}</td>
-    <td class="data-cell">{{ f.data_produkcji }}</td>
+    <td class="data-cell">{% if f.data_produkcji in ['0', 0, None, ''] %}—{% else %}{{ f.data_produkcji }}{% endif %}</td>
     <td>
         {% if f.status == 'dostepna' %}
             <span class="badge bg-success"><i class="fas fa-box"></i> Dostępna</span>

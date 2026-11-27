@@ -149,6 +149,7 @@ def farba_edytuj(
     request: Request,
     pantone: str = Form(...),
     lub: str = Form(""),
+    artwork: str = Form(""),
     polka: str = Form(""),
     waga: float = Form(...),
     data_produkcji: str = Form(...),
@@ -169,9 +170,10 @@ def farba_edytuj(
     f = cur.fetchone()
     if not f:
         return RedirectResponse("/magazyn?error=notfound", status_code=303)
+    data_val = (data_produkcji or "").strip() or "0"
     cur.execute(
-        "UPDATE farby SET pantone=?, lub=?, polka=?, waga=?, data_produkcji=? WHERE id=?",
-        (pantone, lub, polka, waga, data_produkcji, farba_id),
+        "UPDATE farby SET pantone=?, lub=?, artwork=?, polka=?, waga=?, data_produkcji=? WHERE id=?",
+        (pantone, lub, artwork or None, polka, waga, data_val, farba_id),
     )
     dodaj_operacje(cur, "edycja", pantone, str(waga), polka, f"Edycja przez {user['username']}", farba_id)
     conn.commit()
@@ -200,16 +202,18 @@ def dodaj_farba(
     request: Request,
     pantone: str = Form(...),
     lub: str = Form(""),
+    artwork: str = Form(""),
     polka: str = Form(...),
-    data_produkcji: str = Form(...),
+    data_produkcji: str = Form(""),
     waga: float = Form(...),
     user=Depends(require_auth),
     conn=Depends(get_db),
 ):
     cur = conn.cursor()
+    data_val = (data_produkcji or "").strip() or "0"
     cur.execute(
-        "INSERT INTO farby (pantone, lub, polka, waga, status, data_produkcji) VALUES (?, ?, ?, ?, 'dostepna', ?)",
-        (pantone, lub, polka, waga, data_produkcji),
+        "INSERT INTO farby (pantone, lub, artwork, polka, waga, status, data_produkcji) VALUES (?, ?, ?, ?, ?, 'dostepna', ?)",
+        (pantone, lub, artwork or None, polka, waga, data_val),
     )
     dodaj_operacje(cur, "przyjęcie", pantone, str(waga), polka, "", cur.lastrowid)
     conn.commit()

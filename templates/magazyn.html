@@ -65,16 +65,19 @@
             <form method="post" action="/dodaj_farba" id="addForm">
                 <div class="row g-3">
                     <div class="col-md-2">
-                        <input type="text" name="pantone" class="form-control" placeholder="Pantone" required>
+                        <input type="text" name="pantone" class="form-control" placeholder="Nazwa / Pantone" required>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-1">
                         <input type="text" name="lub" class="form-control" placeholder="LUB">
                     </div>
                     <div class="col-md-2">
+                        <input type="text" name="artwork" class="form-control" placeholder="Artwork">
+                    </div>
+                    <div class="col-md-1">
                         <input type="text" name="polka" class="form-control" placeholder="Półka" required>
                     </div>
                     <div class="col-md-2">
-                        <input type="date" name="data_produkcji" class="form-control" required>
+                        <input type="date" name="data_produkcji" class="form-control" title="Puste = brak daty (0)">
                     </div>
                     <div class="col-md-2">
                         <input type="number" step="0.01" name="waga" class="form-control" placeholder="Waga (kg)" required>
@@ -96,7 +99,8 @@
                     <label class="form-label">Szukaj w polu:</label>
                     <select name="search_field" class="form-select">
                         <option value="lub" {% if search_field == 'lub' %}selected{% endif %}>LUB</option>
-                        <option value="pantone" {% if search_field == 'pantone' %}selected{% endif %}>Pantone</option>
+                        <option value="pantone" {% if search_field == 'pantone' %}selected{% endif %}>Nazwa</option>
+                        <option value="artwork" {% if search_field == 'artwork' %}selected{% endif %}>Artwork</option>
                         <option value="polka" {% if search_field == 'polka' %}selected{% endif %}>Półka</option>
                     </select>
                 </div>
@@ -142,8 +146,9 @@
         <table class="table table-hover table-bordered align-middle">
             <thead class="table-light">
                 <tr>
-                    <th><a href="?sort=pantone&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Pantone</a></th>
+                    <th><a href="?sort=pantone&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Nazwa</a></th>
                     <th><a href="?sort=lub&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> LUB</a></th>
+                    <th><a href="?sort=artwork&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Artwork</a></th>
                     <th><a href="?sort=polka&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Półka</a></th>
                     <th><a href="?sort=waga&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Waga (kg)</a></th>
                     <th><a href="?sort=data_produkcji&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Data prod.</a></th>
@@ -156,9 +161,10 @@
                 <tr data-id="{{ f.id }}" class="{% if f.status == 'zutylizowana' %}utylizowana-row{% elif f.alert == 'przeterminowana' %}table-danger{% elif f.alert == 'uwaga' %}table-warning{% endif %}">
                     <td>{{ f.pantone }}</td>
                     <td>{{ f.lub }}{% if f.extra_lubs %}<br>{% for el in f.extra_lubs %}<span class="badge bg-info text-dark">{{ el }}</span> {% endfor %}{% endif %}</td>
+                    <td>{{ f.artwork or '—' }}</td>
                     <td>{{ f.polka }}</td>
                     <td class="waga-cell">{{ f.waga }}</td>
-                    <td class="data-cell">{{ f.data_produkcji }}</td>
+                    <td class="data-cell">{% if f.data_produkcji in ['0', 0, None, ''] %}—{% else %}{{ f.data_produkcji }}{% endif %}</td>
                     <td>
                         {% if f.status == 'dostepna' %}
                             <span class="badge bg-success"><i class="fas fa-box"></i> Dostępna</span>
@@ -189,7 +195,8 @@
                         <button class="btn btn-sm btn-outline-secondary mb-1"
                             data-bs-toggle="modal" data-bs-target="#editModal"
                             data-id="{{ f.id }}" data-pantone="{{ f.pantone }}" data-lub="{{ f.lub or '' }}"
-                            data-polka="{{ f.polka or '' }}" data-waga="{{ f.waga }}" data-data="{{ f.data_produkcji }}">
+                            data-artwork="{{ f.artwork or '' }}"
+                            data-polka="{{ f.polka or '' }}" data-waga="{{ f.waga }}" data-data="{{ f.data_produkcji if f.data_produkcji not in ['0', 0] else '' }}">
                             <i class="fas fa-edit"></i> Edytuj
                         </button>
                         {% endif %}
@@ -355,6 +362,8 @@
             document.getElementById('editFarbaId').value = btn.dataset.id;
             document.getElementById('editPantone').value = btn.dataset.pantone;
             document.getElementById('editLub').value = btn.dataset.lub;
+            const art = document.getElementById('editArtwork');
+            if (art) art.value = btn.dataset.artwork || '';
             document.getElementById('editPolka').value = btn.dataset.polka;
             document.getElementById('editWaga').value = btn.dataset.waga;
             document.getElementById('editData').value = btn.dataset.data;
@@ -395,12 +404,16 @@
           <hr>
           {% endif %}
           <div class="mb-3">
-            <label class="form-label">Pantone</label>
+            <label class="form-label">Nazwa / Pantone</label>
             <input type="text" id="editPantone" name="pantone" class="form-control" required>
           </div>
           <div class="mb-3">
             <label class="form-label">LUB (główny)</label>
             <input type="text" id="editLub" name="lub" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Artwork</label>
+            <input type="text" id="editArtwork" name="artwork" class="form-control">
           </div>
           <div class="mb-3">
             <label class="form-label">Półka</label>
@@ -412,7 +425,7 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Data produkcji</label>
-            <input type="date" id="editData" name="data_produkcji" class="form-control" required>
+            <input type="date" id="editData" name="data_produkcji" class="form-control" title="Puste = brak daty">
           </div>
         </div>
         <div class="modal-footer">

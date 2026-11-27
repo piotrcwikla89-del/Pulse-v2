@@ -151,6 +151,7 @@ def get_db():
 
 def migrate_schema_postgres(cur) -> None:
     migrations = {
+        "farby": [("artwork", "TEXT")],
         "operacje": [("farba_id", "INTEGER")],
         "production_reports": [("plan_id", "INTEGER")],
         "print_control_reports": [("plan_id", "INTEGER")],
@@ -174,6 +175,19 @@ def migrate_schema_postgres(cur) -> None:
         for col_name, col_type in columns:
             if col_name not in existing:
                 cur.execute('ALTER TABLE "%s" ADD COLUMN %s %s' % (table, col_name, col_type))
+    # data_produkcji musi przyjąć sentinel „0” (brak daty z Excela).
+    cur.execute(
+        """
+        SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='farby' AND column_name='data_produkcji'
+        """
+    )
+    row = cur.fetchone()
+    dtype = (row["data_type"] if row and hasattr(row, "keys") else (row[0] if row else "")) or ""
+    if dtype and str(dtype).lower() not in ("text", "character varying", "varchar"):
+        cur.execute(
+            "ALTER TABLE farby ALTER COLUMN data_produkcji TYPE TEXT USING data_produkcji::text"
+        )
     # Migracja: tabela system_settings
     cur.execute(
         "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='system_settings'"
@@ -335,10 +349,11 @@ def init_postgres_schema(cur) -> None:
             id SERIAL PRIMARY KEY,
             pantone TEXT NOT NULL,
             lub TEXT,
+            artwork TEXT,
             polka TEXT,
             waga DOUBLE PRECISION NOT NULL,
             status TEXT NOT NULL DEFAULT 'dostepna',
-            data_produkcji DATE NOT NULL
+            data_produkcji TEXT NOT NULL
         )
         """,
         """
