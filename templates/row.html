@@ -29,10 +29,12 @@
             {% endif %}
             <form method="post" action="/utylizacja" class="d-inline">
                 <input type="hidden" name="id" value="{{ f.id }}">
-                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:100px">
-                    <option value="data">Data</option>
-                    <option value="błąd mieszania">Błąd</option>
-                    <option value="resztka">Resztka</option>
+                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:140px">
+                    <option value="przeterminowana">przeterminowana</option>
+                    <option value="minimalna ilość">minimalna ilość</option>
+                    <option value="mieszanie w kałamarzu">mieszanie w kałamarzu</option>
+                    <option value="błąd koloru">błąd koloru</option>
+                    <option value="inna">inna</option>
                 </select>
                 <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Utylizuj</button>
             </form>
@@ -44,10 +46,12 @@
             </form>
             <form method="post" action="/utylizacja" class="d-inline">
                 <input type="hidden" name="id" value="{{ f.id }}">
-                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:100px">
-                    <option value="data">Data</option>
-                    <option value="błąd mieszania">Błąd</option>
-                    <option value="resztka">Resztka</option>
+                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:140px">
+                    <option value="przeterminowana">przeterminowana</option>
+                    <option value="minimalna ilość">minimalna ilość</option>
+                    <option value="mieszanie w kałamarzu">mieszanie w kałamarzu</option>
+                    <option value="błąd koloru">błąd koloru</option>
+                    <option value="inna">inna</option>
                 </select>
                 <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Utylizuj</button>
             </form>

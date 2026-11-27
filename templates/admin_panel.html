@@ -255,7 +255,7 @@
             <div class="row g-3">
                 <div class="col-md-4">
                     <form action="/admin/import_farby" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center"
-                          onsubmit="return confirm('Excel Magazyn: REPLACE żywego stanu (bez zutylizowanych). Kontynuować?');">
+                          onsubmit="return confirm('Excel Magazyn: REPLACE pełnego stanu + historii z Bazy. Kontynuować?');">
                         <input type="file" name="plik" class="form-control" accept=".xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,text/csv" required>
                         <button type="submit" class="btn btn-success">Import farb</button>
                     </form>
@@ -273,7 +273,7 @@
                     </form>
                 </div>
             </div>
-            <p class="text-muted mt-3 small">Farby: preferowany Excel <code>Magazyn_farb_resztkowych.xlsm</code> (arkusz Magazyn) — replace żywego stanu, pomija zutylizowane, dodaje Artwork.<br>
+            <p class="text-muted mt-3 small">Farby: Excel <code>Magazyn_farb_resztkowych.xlsm</code> — arkusze Magazyn (pełny stan w tym zutylizowane) + Baza (historia) + Półki (dashboard). Replace.<br>
                 Stary CSV: pantone,lub,polka,waga,data_produkcji[,artwork]<br>
                 polimery: lub,kolor,lokalizacja,data_waznosci,uwagi<br>
                 plany: machine,order_number,artwork_number,lub_number,order_name,laminate,meters,pieces,planned_date

@@ -80,6 +80,22 @@ def dodaj_operacje(cur, typ, farba, ilosc, polka, uwagi="", farba_id=None):
         """,
         (local_datetime_str(fmt="%Y-%m-%d %H:%M"), typ, farba, ilosc, polka, uwagi, farba_id),
     )
+    # Auto-snapshot KPI magazynu (dashboard / raporty dzienne).
+    if typ in (
+        "wydanie",
+        "zwrot",
+        "utylizacja",
+        "przyjęcie",
+        "przywrócenie",
+        "import",
+        "edycja",
+    ):
+        try:
+            from services.magazyn_dashboard import refresh_magazyn_daily_report
+
+            refresh_magazyn_daily_report(cur)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def log_production_operation(cur, operation_type, description, machine=None, plan_id=None, user="system"):

@@ -53,7 +53,7 @@
 
     <div class="mb-3">
         <a href="/dashboard" class="btn btn-outline-primary"><i class="fas fa-home"></i> Dashboard</a>
-        <a href="/statystyki" class="btn btn-outline-primary"><i class="fas fa-chart-bar"></i> Statystyki</a>
+        <a href="/magazyn/dashboard" class="btn btn-outline-primary"><i class="fas fa-tachometer-alt"></i> Dashboard farb</a>
         <a href="/historia" class="btn btn-outline-dark"><i class="fas fa-history"></i> Historia</a>
         <a href="/export" class="btn btn-outline-success"><i class="fas fa-file-csv"></i> Eksport CSV</a>
     </div>
@@ -209,10 +209,12 @@
                             {% endif %}
                             <form method="post" action="/utylizacja" class="d-inline">
                                 <input type="hidden" name="id" value="{{ f.id }}">
-                                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:100px">
-                                    <option value="data">Data</option>
-                                    <option value="błąd mieszania">Błąd</option>
-                                    <option value="resztka">Resztka</option>
+                                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:140px">
+                                    <option value="przeterminowana">przeterminowana</option>
+                                    <option value="minimalna ilość">minimalna ilość</option>
+                                    <option value="mieszanie w kałamarzu">mieszanie w kałamarzu</option>
+                                    <option value="błąd koloru">błąd koloru</option>
+                                    <option value="inna">inna</option>
                                 </select>
                                 <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Utylizuj</button>
                             </form>
@@ -224,10 +226,12 @@
                             </form>
                             <form method="post" action="/utylizacja" class="d-inline">
                                 <input type="hidden" name="id" value="{{ f.id }}">
-                                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:100px">
-                                    <option value="data">Data</option>
-                                    <option value="błąd mieszania">Błąd</option>
-                                    <option value="resztka">Resztka</option>
+                                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:140px">
+                                    <option value="przeterminowana">przeterminowana</option>
+                                    <option value="minimalna ilość">minimalna ilość</option>
+                                    <option value="mieszanie w kałamarzu">mieszanie w kałamarzu</option>
+                                    <option value="błąd koloru">błąd koloru</option>
+                                    <option value="inna">inna</option>
                                 </select>
                                 <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Utylizuj</button>
                             </form>

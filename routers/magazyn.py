@@ -410,7 +410,24 @@ def historia(request: Request, user=Depends(require_auth), conn=Depends(get_db))
 def statystyki(request: Request, user=Depends(require_auth), conn=Depends(get_db)):
     if user["role"] not in ("manager", "admin", "operator_mieszalni"):
         return RedirectResponse("/dashboard", status_code=303)
+    return RedirectResponse("/magazyn/dashboard", status_code=303)
+
+
+@router.get("/magazyn/dashboard")
+def magazyn_dashboard_view(request: Request, user=Depends(require_auth), conn=Depends(get_db)):
+    """Dashboard magazynu farb — odpowiednik arkusza Dashboard z Excela."""
+
+    if user["role"] not in ("manager", "admin", "operator_mieszalni"):
+        return RedirectResponse("/dashboard", status_code=303)
     cur = conn.cursor()
+    from services.magazyn_dashboard import (
+        list_recent_daily_reports,
+        refresh_magazyn_daily_report,
+    )
+
+    stats = refresh_magazyn_daily_report(cur)
+    conn.commit()
+    history = list_recent_daily_reports(cur, limit=14)
     cur.execute("""
         SELECT farba, COUNT(*) as ile
         FROM operacje
@@ -420,14 +437,15 @@ def statystyki(request: Request, user=Depends(require_auth), conn=Depends(get_db
         LIMIT 10
     """)
     top_farby = cur.fetchall()
-    labels = [row["farba"] for row in top_farby]
-    values = [row["ile"] for row in top_farby]
-    return render_template("statystyki.html", {
-        "top_farby": top_farby,
-        "labels": labels,
-        "values": values,
-        "user": {"username": user["username"], "role": user["role"]},
-    })
+    return render_template(
+        "magazyn_dashboard.html",
+        {
+            "stats": stats,
+            "history": history,
+            "top_farby": top_farby,
+            "user": {"username": user["username"], "role": user["role"]},
+        },
+    )
 
 
 @router.get("/raport_utylizacji")

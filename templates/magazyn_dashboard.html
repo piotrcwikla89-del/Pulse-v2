@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard magazynu farb</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .kpi-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+        .kpi-label { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: #6c757d; }
+        .shelf-bar { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+        .shelf-bar > span { display: block; height: 100%; background: #0d6efd; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container-fluid px-3 px-lg-4 mt-3 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h1 class="h3 mb-0"><i class="fas fa-tachometer-alt"></i> Dashboard magazynu farb</h1>
+            <div class="text-muted small">Stan na {{ stats.report_date }} · snapshot zapisuje się automatycznie przy każdym ruchu</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="align-self-center small"><i class="fas fa-user"></i> {{ user.username }}</span>
+            <a href="/magazyn" class="btn btn-secondary btn-sm"><i class="fas fa-boxes"></i> Magazyn</a>
+            <a href="/historia" class="btn btn-outline-dark btn-sm"><i class="fas fa-history"></i> Historia</a>
+            <a href="/raport_utylizacji" class="btn btn-outline-danger btn-sm"><i class="fas fa-trash-alt"></i> Utylizacje</a>
+            <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i></a>
+        </div>
+    </div>
+
+    <h2 class="h6 text-uppercase text-muted mb-2">Aktualny stan</h2>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100 border-success">
+                <div class="card-body">
+                    <div class="kpi-label">Dostępne</div>
+                    <div class="kpi-value text-success">{{ stats.dostepna }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100 border-primary">
+                <div class="card-body">
+                    <div class="kpi-label">W użyciu</div>
+                    <div class="kpi-value text-primary">{{ stats.w_uzyciu }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100 border-secondary">
+                <div class="card-body">
+                    <div class="kpi-label">Zutylizowane</div>
+                    <div class="kpi-value text-secondary">{{ stats.zutylizowana }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="kpi-label">Łączna masa (kg)</div>
+                    <div class="kpi-value">{{ stats.masa_kg }}</div>
+                    <div class="small text-muted">dostępne + w użyciu</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h2 class="h6 text-uppercase text-muted mb-2">Kondycja magazynu</h2>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="kpi-label">Średni wiek</div>
+                    <div class="kpi-value">{{ stats.sredni_wiek }}</div>
+                    <div class="small text-muted">dni</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="kpi-label">Najstarsza farba</div>
+                    <div class="kpi-value">{{ stats.najstarsza }}</div>
+                    <div class="small text-muted text-truncate" title="{{ stats.najstarsza_nazwa }}">{{ stats.najstarsza_nazwa or '—' }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100 border-danger">
+                <div class="card-body">
+                    <div class="kpi-label">Przeterminowane (&gt;365)</div>
+                    <div class="kpi-value text-danger">{{ stats.przeterminowane }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card shadow-sm h-100 border-warning">
+                <div class="card-body">
+                    <div class="kpi-label">&lt;30 dni przydatności</div>
+                    <div class="kpi-value text-warning">{{ stats.blisko_terminu }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-dark text-white d-flex justify-content-between">
+                    <span><i class="fas fa-th"></i> Zapełnienie półek</span>
+                    <span class="small">średnio {{ stats.srednie_zapelnienie }}% · wolne {{ stats.wolne_miejsca }}</span>
+                </div>
+                <div class="card-body p-0">
+                    {% if stats.polki %}
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Półka</th>
+                                    <th>Zajęte / max</th>
+                                    <th>Wolne</th>
+                                    <th style="width:35%">%</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for s in stats.polki %}
+                                <tr>
+                                    <td><strong>{{ s.polka }}</strong></td>
+                                    <td>{{ s.label }}</td>
+                                    <td>{{ s.free }}</td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="shelf-bar flex-grow-1"><span style="width:{% if s.fill_pct > 100 %}100{% else %}{{ s.fill_pct }}{% endif %}%"></span></div>
+                                            <span class="small">{{ s.fill_pct }}%</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="p-3 text-muted mb-0">Brak pojemności półek — zaimportuj arkusz Półki z Excela magazynu.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm mb-3">
+                <div class="card-header bg-primary text-white"><i class="fas fa-exchange-alt"></i> Aktywność magazynu</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th></th>
+                                <th>Dziś</th>
+                                <th>Tydzień</th>
+                                <th>30 dni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>↑ Wydania</td>
+                                <td>{{ stats.aktywnosc.wydania.dzis }}</td>
+                                <td>{{ stats.aktywnosc.wydania.tydzien }}</td>
+                                <td>{{ stats.aktywnosc.wydania.dni30 }}</td>
+                            </tr>
+                            <tr>
+                                <td>↓ Zwroty</td>
+                                <td>{{ stats.aktywnosc.zwroty.dzis }}</td>
+                                <td>{{ stats.aktywnosc.zwroty.tydzien }}</td>
+                                <td>{{ stats.aktywnosc.zwroty.dni30 }}</td>
+                            </tr>
+                            <tr>
+                                <td>× Utylizacje (szt.)</td>
+                                <td>{{ stats.aktywnosc.utylizacje.dzis }}</td>
+                                <td>{{ stats.aktywnosc.utylizacje.tydzien }}</td>
+                                <td>{{ stats.aktywnosc.utylizacje.dni30 }}</td>
+                            </tr>
+                            <tr>
+                                <td>× Utylizacje (kg)</td>
+                                <td>{{ stats.aktywnosc.utylizacje.masa_dzis }}</td>
+                                <td>{{ stats.aktywnosc.utylizacje.masa_tydzien }}</td>
+                                <td>{{ stats.aktywnosc.utylizacje.masa_30d }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card shadow-sm">
+                <div class="card-header bg-danger text-white"><i class="fas fa-notes-medical"></i> Przyczyny utylizacji (30 dni)</div>
+                <ul class="list-group list-group-flush">
+                    {% for p in stats.przyczyny_30d %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>{{ p.powod }}</span>
+                        <span><span class="badge bg-danger">{{ p.n }}</span> <small class="text-muted">{{ '%.1f'|format(p.masa) }} kg</small></span>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted">Brak utylizacji w ostatnich 30 dniach</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header"><i class="fas fa-trophy"></i> Top wydawane farby</div>
+                <ul class="list-group list-group-flush">
+                    {% for f in top_farby %}
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>{{ f.farba }}</span>
+                        <span class="badge bg-primary rounded-pill">{{ f.ile }}</span>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted">Brak wydań w historii</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header"><i class="fas fa-calendar-day"></i> Zapisane raporty dzienne</div>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Data</th>
+                                <th>Dost.</th>
+                                <th>Użycie</th>
+                                <th>Utyl.</th>
+                                <th>Masa</th>
+                                <th>Wydania</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for h in history %}
+                            <tr>
+                                <td>{{ h.report_date }}</td>
+                                <td>{{ h.dostepna }}</td>
+                                <td>{{ h.w_uzyciu }}</td>
+                                <td>{{ h.zutylizowana }}</td>
+                                <td>{{ h.masa_kg }}</td>
+                                <td>{{ h.wydania_dzis }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="6" class="text-muted">Brak zapisanych raportów</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

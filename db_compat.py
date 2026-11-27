@@ -45,6 +45,7 @@ def adapt_sql_postgres(sql: str) -> str:
     s = s.replace("date(created_at)=date('now')", "(created_at::date = CURRENT_DATE)")
     s = s.replace("date(created_at) = date('now')", "(created_at::date = CURRENT_DATE)")
     s = s.replace("date(data) BETWEEN", "(data::timestamp::date) BETWEEN")
+    s = s.replace("date(data)", "(data::timestamp::date)")
     s = s.replace("datetime('now')", "CURRENT_TIMESTAMP")
     s = s.replace("date('now')", "CURRENT_DATE")
     s = s.replace("time('now')", "CURRENT_TIME")
