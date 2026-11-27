@@ -92,11 +92,19 @@ def health():
     """Healthcheck dla Render (i monitoring)."""
 
     thumbs = planner_thumbs_dir()
+    tesseract_ok = False
+    try:
+        import shutil
+
+        tesseract_ok = shutil.which("tesseract") is not None
+    except Exception:  # noqa: BLE001
+        tesseract_ok = False
     return {
         "status": "ok",
         "postgres": is_postgres(),
         "render": is_render(),
         "thumbs_dir": str(thumbs),
+        "tesseract": tesseract_ok,
     }
 
 # ==================== INICJALIZACJA BAZY DANYCH ====================

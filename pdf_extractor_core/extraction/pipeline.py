@@ -88,19 +88,38 @@ def extract_document(
     if options.on_stage is not None:
         options.on_stage("OCR: start (skan)…")
 
-    ocr_page = getattr(text_result, "page_index", candidates[0] if candidates else 0)
-    ocr_result = _ocr_result(
-        path,
-        config,
-        file_hash,
-        file_size,
-        page_count or text_result.page_count,
-        hint,
-        revision,
-        page_index=ocr_page,
-        on_stage=options.on_stage,
-    )
-    return _prefer_result(text_result, ocr_result)
+    # Skan bez warstwy tekstowej: score stron po tekście nic nie mówi — OCR kilku stron.
+    ocr_pages = list(candidates)
+    total_pages = page_count or text_result.page_count or 1
+    for index in range(min(total_pages, 5)):
+        if index not in ocr_pages:
+            ocr_pages.append(index)
+
+    best_ocr: ExtractionResult | None = None
+    last_ocr_fail: ExtractionResult | None = None
+    for ocr_page in ocr_pages[:5]:
+        if options.on_stage is not None:
+            options.on_stage(f"OCR: strona {ocr_page + 1}…")
+        ocr_result = _ocr_result(
+            path,
+            config,
+            file_hash,
+            file_size,
+            total_pages,
+            hint,
+            revision,
+            page_index=ocr_page,
+            on_stage=options.on_stage,
+        )
+        if ocr_result.separations:
+            if best_ocr is None or len(ocr_result.separations) > len(best_ocr.separations):
+                best_ocr = ocr_result
+            if ocr_result.status is ValidationStatus.SUCCESS and len(ocr_result.separations) >= 2:
+                break
+        else:
+            last_ocr_fail = ocr_result
+
+    return _prefer_result(text_result, best_ocr or last_ocr_fail or text_result)
 
 
 def _text_result(path, document, file_hash, file_size, hint, revision, legend, *, page_index: int) -> ExtractionResult:

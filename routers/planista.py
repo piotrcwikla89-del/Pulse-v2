@@ -512,8 +512,21 @@ async def planista_upload_pdfs(
     conn.commit()
     if saved == 0:
         return RedirectResponse("/planista?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
+    # Krótki status ekstrakcji po uploadzie — ile jobów z kolorami.
+    cur.execute(
+        """
+        SELECT
+          SUM(CASE WHEN color_count > 0 THEN 1 ELSE 0 END) AS with_colors,
+          SUM(CASE WHEN COALESCE(color_count,0)=0 THEN 1 ELSE 0 END) AS zero_colors
+        FROM color_jobs
+        """
+    )
+    row = cur.fetchone()
+    with_colors = int((_row_get(row, "with_colors", 0) or 0))
+    zero_colors = int((_row_get(row, "zero_colors", 1) or 0))
+    extra = f" Kolory: OK={with_colors}, brak={zero_colors}."
     return RedirectResponse(
-        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()}')}",
+        f"/planista?success={_q(f'Wgrano {saved} PDF. {summary.as_text()}.{extra}')}",
         status_code=303,
     )
 

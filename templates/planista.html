@@ -76,6 +76,26 @@
             display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; font-size:.8rem;
         }
         .ingest-slim .form-control, .ingest-slim .btn { font-size: .8rem; }
+        .ingest-overlay {
+            position: fixed; inset: 0; z-index: 2000; display: none;
+            align-items: center; justify-content: center;
+            background: rgba(15, 23, 32, .45); backdrop-filter: blur(2px);
+        }
+        .ingest-overlay.visible { display: flex; }
+        .ingest-overlay-card {
+            background: #fff; border-radius: 12px; padding: 1.25rem 1.5rem;
+            box-shadow: 0 16px 40px rgba(0,0,0,.22); max-width: 420px; width: calc(100% - 2rem);
+            text-align: center;
+        }
+        .ingest-overlay-card .spinner-border { width: 2.2rem; height: 2.2rem; }
+        .job-extract-warn {
+            font-size: .65rem; color: #a15c00; background: #fff4e0; border-radius: 4px;
+            padding: .1rem .3rem; margin-top: .2rem;
+        }
+        .job-extract-err {
+            font-size: .65rem; color: #9b1c1c; background: #fde8e8; border-radius: 4px;
+            padding: .1rem .3rem; margin-top: .2rem;
+        }
 
         /* Pool tiles — compact */
         .pool-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .65rem; }
@@ -254,11 +274,12 @@
                     <input type="hidden" name="watcher_enabled" value="{{ settings.planner_watcher_enabled }}">
                     <button class="btn btn-sm btn-light" type="submit">Zapisz</button>
                 </form>
-                <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="d-flex gap-1">
-                    <input type="file" name="files" class="form-control form-control-sm" accept=".pdf,application/pdf" multiple style="max-width:160px" title="PDF">
+                <form method="post" action="/planista/upload-pdfs" enctype="multipart/form-data" class="d-flex gap-1 js-ingest-form" data-ingest-msg="Wgrywam i odczytuję PDF (OCR może chwilę potrwać)…">
+                    <input type="file" name="files" class="form-control form-control-sm" accept=".pdf,application/pdf" multiple style="max-width:160px" title="PDF" required>
                     <button class="btn btn-sm btn-success" type="submit" title="Upload PDF"><i class="fas fa-upload"></i></button>
                 </form>
-                <form method="post" action="/planista/import-excel" enctype="multipart/form-data" class="d-flex gap-1 align-items-center flex-wrap"
+                <form method="post" action="/planista/import-excel" enctype="multipart/form-data" class="d-flex gap-1 align-items-center flex-wrap js-ingest-form"
+                      data-ingest-msg="Importuję Excel…"
                       title="Excel: plan produkcyjny (Stanowisko/Zlecenie/Artwork), katalog farb ORDER_COLORS lub prosty draft">
                     <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="max-width:180px" required>
                     <label class="small text-nowrap mb-0 opacity-75" title="Usuwa tylko status planned przed importem planu ERP">
@@ -266,11 +287,14 @@
                     </label>
                     <button class="btn btn-sm btn-primary" type="submit" title="Import Excel"><i class="fas fa-file-excel"></i> Excel</button>
                 </form>
-                <form method="post" action="/planista/scan" class="d-inline">
+                <form method="post" action="/planista/scan" class="d-inline js-ingest-form" data-ingest-msg="Skanuję folder PDF i odświeżam ekstrakcje…">
                     <input type="hidden" name="folder" id="planistaScanFolder" value="{{ settings.planner_pdf_root }}">
                     <button class="btn btn-sm btn-warning" type="submit" title="Skan PDF + ponowienie słabych ekstrakcji + link plan↔PDF"><i class="fas fa-sync"></i> Skan</button>
                 </form>
                 <span class="opacity-75" title="pending / done / error">p{{ ingest_counts.get('pending', 0) }}/d{{ ingest_counts.get('done', 0) }}/e{{ ingest_counts.get('error', 0) }}</span>
+                {% if settings.planner_last_scan_summary %}
+                <span class="text-muted text-truncate" style="max-width:280px" title="{{ settings.planner_last_scan_summary }}">{{ settings.planner_last_scan_summary }}</span>
+                {% endif %}
             </div>
 
             <div class="druk-split">
@@ -307,6 +331,12 @@
                                         <div class="fw-semibold text-truncate" style="font-size:.8rem">{{ job.order_number or '—' }}</div>
                                         <div class="text-muted text-truncate" style="font-size:.7rem">{{ job.order_name or '' }}</div>
                                         <div style="font-size:.7rem">{{ job.color_count or 0 }} kolorów</div>
+                                        {% set est = (job.extraction_status or '')|lower %}
+                                        {% if (job.color_count or 0) == 0 and est in ['error', 'partial', ''] %}
+                                        <div class="job-extract-err" title="{{ est }}">Brak odczytu farb — ponów skan (OCR)</div>
+                                        {% elif est == 'partial' %}
+                                        <div class="job-extract-warn">Odczyt częściowy</div>
+                                        {% endif %}
                                         <div class="mt-1">
                                             {% for c in colors.get(jid, [])[:4] %}
                                             <span class="color-chip">{{ c }}</span>
@@ -599,6 +629,13 @@
 <div class="job-zoom" id="jobZoom"><img alt=""></div>
 <div class="pdf-lightbox" id="pdfLightbox" title="Kliknij aby zamknąć"><img alt=""></div>
 <div id="toastHost"></div>
+<div class="ingest-overlay" id="ingestOverlay" aria-live="polite" aria-busy="true">
+  <div class="ingest-overlay-card">
+    <div class="spinner-border text-primary mb-3" role="status"></div>
+    <div class="fw-semibold mb-1" id="ingestOverlayTitle">Trwa import…</div>
+    <div class="small text-muted" id="ingestOverlayHint">Nie zamykaj okna — odczyt PDF/OCR może potrwać kilkadziesiąt sekund.</div>
+  </div>
+</div>
 
 <div class="modal fade" id="restorePoolModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm modal-dialog-centered">
@@ -635,6 +672,20 @@
   const lightbox = document.getElementById('pdfLightbox');
   const lightboxImg = lightbox.querySelector('img');
   const jobCache = new Map();
+  const ingestOverlay = document.getElementById('ingestOverlay');
+  const ingestOverlayTitle = document.getElementById('ingestOverlayTitle');
+
+  function showIngestOverlay(msg) {
+    if (!ingestOverlay) return;
+    if (ingestOverlayTitle) ingestOverlayTitle.textContent = msg || 'Trwa import…';
+    ingestOverlay.classList.add('visible');
+  }
+  document.querySelectorAll('form.js-ingest-form').forEach((form) => {
+    form.addEventListener('submit', () => {
+      const msg = form.getAttribute('data-ingest-msg') || 'Trwa import…';
+      showIngestOverlay(msg);
+    });
+  });
 
   // Zepsute / brakujące miniatury → placeholder zamiast czarnego tła.
   document.addEventListener('error', (e) => {

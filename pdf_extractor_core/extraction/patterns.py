@@ -2,9 +2,10 @@
 
 import re
 
-# Esko: ``133.0 / 37.5 / 1.56%``
+# Esko: ``133.0 / 37.5 / 1.56%`` (OCR często bez ukośników: ``133.0 37.5 0.37%``)
 SCREEN_PATTERN = re.compile(
-    r"^(?P<lpi>\d+(?:\.\d+)?)\s*/\s*(?P<angle>\d+(?:\.\d+)?)\s*/\s*(?P<coverage>\d+(?:[.,]\d+)?)\s*%$"
+    r"^(?P<lpi>\d+(?:[.,]\d+)?)\s*(?:/\s*)?(?P<angle>\d+(?:[.,]\d+)?)\s*(?:/\s*)?"
+    r"(?P<coverage>\d+(?:[.,]\d+)?)\s*%$"
 )
 
 # LAC bromide: ``3.16% 126.0 lpi 7.5°``

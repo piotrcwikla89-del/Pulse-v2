@@ -30,9 +30,9 @@ _DATE_FORMATS = (
     "%d-%m-%Y",
 )
 _SCREEN_NUMBER = re.compile(r"^\d+(?:\.\d+)?$")
-# Separatory OCR bywają ``/``, ``|``, ``!`` albo sklejone w jednym tokenie.
+# Separatory OCR bywają ``/``, ``|``, ``!``, spacje albo sklejone w jednym tokenie.
 _SCREEN_SEARCH = re.compile(
-    r"(?P<lpi>\d+(?:\.\d+)?)\s*[\/|!:]+\s*(?P<angle>\d+(?:\.\d+)?)\s*[\/|!:]+\s*"
+    r"(?P<lpi>\d+(?:[.,]\d+)?)\s*(?:[\/|!:]+\s*)?(?P<angle>\d+(?:[.,]\d+)?)\s*(?:[\/|!:]+\s*)?"
     r"(?P<coverage>\d+(?:[.,]\d+)?)\s*%"
 )
 _LAC_SCREEN_SEARCH = re.compile(
@@ -96,7 +96,7 @@ _FLEXMAR_LABEL_NOISE = re.compile(
     re.IGNORECASE,
 )
 _FLEXMAR_COLOR_MIN_X = 360.0
-_SCREEN_TOKEN_GAP = 18.0
+_SCREEN_TOKEN_GAP = 28.0
 _NAME_GAP = 16.0
 _NAME_TO_SCREEN_GAP = 55.0
 _LINE_TOLERANCE = 4.0
@@ -587,12 +587,37 @@ def _flexmar_station_for(color: WordBox, stations: list[WordBox]) -> str | None:
     return best[1] if best is not None else None
 
 
+_OCR_VARNISH = re.compile(
+    r"^(?:wamish|yamnish|vamish|varmish|warnish|varnlsh|varnish|lakier)/?$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_ocr_color_token(token: str) -> str:
+    cleaned = token.strip().rstrip("/")
+    if _OCR_VARNISH.fullmatch(cleaned):
+        return "Varnish"
+    if re.fullmatch(r"[Ff](\d{2,4}[A-Za-z0-9]*)", cleaned):
+        return "P" + cleaned[1:]
+    lowered = cleaned.lower()
+    if lowered in {"cyen", "cyan"}:
+        return "Cyan"
+    if re.fullmatch(r"magent[ao]?", lowered):
+        return "Magenta"
+    if re.fullmatch(r"yel[l]?ow", lowered):
+        return "Yellow"
+    if re.fullmatch(r"blac[kc]", lowered):
+        return "Black"
+    return cleaned
+
+
 def _join_color_name(name_words: list[WordBox]) -> str:
     parts: list[str] = []
     for word in name_words:
         token = word.text.strip().strip(".,:;|")
         token = _LEADING_JUNK.sub("", token)
         token = _TRAILING_JUNK.sub("", token)
+        token = _normalize_ocr_color_token(token)
         if not token or token.lower() in {"f", "-", "–", "—"}:
             continue
         if _NAME_NOISE_TOKEN.fullmatch(token):
