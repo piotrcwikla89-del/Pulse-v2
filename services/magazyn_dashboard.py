@@ -44,11 +44,14 @@ def _count_ops(cur, typ: str, since_date: str, until_date: str | None = None) ->
     """Zwraca (liczba, suma wag) operacji danego typu w oknie dat."""
 
     until = until_date or local_date_str(local_now() + timedelta(days=1))
+    # data bywa pusta po imporcie — odrzucamy śmieci zanim CAST padnie na Postgresie.
     cur.execute(
         """
         SELECT COUNT(*) AS n, COALESCE(SUM(CAST(ilosc AS REAL)), 0) AS masa
         FROM operacje
-        WHERE typ=? AND date(data) >= ? AND date(data) < ?
+        WHERE typ=?
+          AND data IS NOT NULL AND TRIM(data) != ''
+          AND date(data) >= ? AND date(data) < ?
         """,
         (typ, since_date, until),
     )
@@ -124,7 +127,9 @@ def build_magazyn_dashboard(cur) -> dict[str, Any]:
         SELECT COALESCE(NULLIF(TRIM(uwagi), ''), '(brak)') AS powod, COUNT(*) AS n,
                COALESCE(SUM(CAST(ilosc AS REAL)), 0) AS masa
         FROM operacje
-        WHERE typ='utylizacja' AND date(data) >= ? AND date(data) < ?
+        WHERE typ='utylizacja'
+          AND data IS NOT NULL AND TRIM(data) != ''
+          AND date(data) >= ? AND date(data) < ?
         GROUP BY powod
         ORDER BY n DESC
         """,

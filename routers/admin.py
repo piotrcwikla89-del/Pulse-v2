@@ -60,7 +60,17 @@ def admin_panel(
             LIMIT 8
             """
         )
-        pdf_errors = [dict(r) for r in cur.fetchall()]
+        for r in cur.fetchall():
+            try:
+                pdf_errors.append(
+                    {
+                        "file_name": r["file_name"] if hasattr(r, "keys") else r[0],
+                        "last_error": r["last_error"] if hasattr(r, "keys") else r[1],
+                        "processed_at": r["processed_at"] if hasattr(r, "keys") else r[2],
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                continue
     except Exception:  # noqa: BLE001
         pdf_errors = []
     context = {
@@ -367,35 +377,45 @@ async def admin_upload_pdfs(
 
     from services.runtime_env import planner_upload_dir
 
-    staging = planner_upload_dir()
-    saved = 0
-    for upload in files:
-        name = (upload.filename or "").strip()
-        if not name.lower().endswith(".pdf"):
-            continue
-        safe = Path(name).name
-        target = staging / safe
-        content = await upload.read()
-        if not content:
-            continue
-        target.write_bytes(content)
-        saved += 1
-    if saved == 0:
-        return RedirectResponse("/admin?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
+    try:
+        staging = planner_upload_dir()
+        saved = 0
+        for upload in files:
+            name = (upload.filename or "").strip()
+            if not name.lower().endswith(".pdf"):
+                continue
+            safe = Path(name).name
+            target = staging / safe
+            content = await upload.read()
+            if not content:
+                continue
+            target.write_bytes(content)
+            saved += 1
+        if saved == 0:
+            return RedirectResponse("/admin?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
 
-    cur = conn.cursor()
-    from services.planner.pdf_blobs import ensure_blob_columns
+        cur = conn.cursor()
+        from services.planner.pdf_blobs import ensure_blob_columns
 
-    ensure_blob_columns(cur)
-    set_planner_setting(cur, "planner_pdf_root", str(staging))
-    # Szybka rejestracja + blob w DB (worker OCR na Render nie widzi dysku web).
-    summary = scan_pdf_folder(cur, str(staging), process=False, limit=0, requeue_weak=False)
-    conn.commit()
-    pending = pending_ingest_count(cur)
-    msg = f"Wgrano {saved} PDF. {summary.as_text()}"
-    if pending:
-        msg += f" · OCR w kolejce workera ({pending}; PDF w bazie)"
-    return RedirectResponse(f"/admin?success={quote(msg)}", status_code=303)
+        ensure_blob_columns(cur)
+        set_planner_setting(cur, "planner_pdf_root", str(staging))
+        # Szybka rejestracja + blob w DB (worker OCR na Render nie widzi dysku web).
+        summary = scan_pdf_folder(cur, str(staging), process=False, limit=0, requeue_weak=False)
+        conn.commit()
+        pending = pending_ingest_count(cur)
+        msg = f"Wgrano {saved} PDF. {summary.as_text()}"
+        if pending:
+            msg += f" · OCR w kolejce workera ({pending}; PDF w bazie)"
+        return RedirectResponse(f"/admin?success={quote(msg)}", status_code=303)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return RedirectResponse(
+            f"/admin?error={quote('Upload PDF nieudany: ' + str(exc)[:220])}",
+            status_code=303,
+        )
 
 
 @router.post("/import_plany")

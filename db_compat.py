@@ -100,6 +100,13 @@ class _PgCursor:
                 self._raw.execute("RELEASE SAVEPOINT _lastval_sp")
         return self
 
+    def executemany(self, sql: str, params_seq: Any):
+        """Jak execute — najpierw adaptacja ? → %s (surowy psycopg2 tego nie robi)."""
+
+        sql = adapt_sql_postgres(sql)
+        self.lastrowid = None
+        return self._raw.executemany(sql, params_seq)
+
     def __getattr__(self, name: str):
         return getattr(self._raw, name)
 

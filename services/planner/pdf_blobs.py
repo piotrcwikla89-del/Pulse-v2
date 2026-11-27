@@ -8,8 +8,19 @@ from pathlib import Path
 from db_compat import is_postgres
 
 
+def _pg_binary(data: bytes):
+    if not is_postgres():
+        return data
+    try:
+        from psycopg2 import Binary
+
+        return Binary(data)
+    except Exception:  # noqa: BLE001
+        return data
+
+
 def ensure_blob_columns(cur) -> None:
-    """Dodaje file_blob / thumbnail_blob jeśli brak."""
+    """Dodaje file_blob / thumbnail_blob jeśli brak (idempotentnie)."""
 
     if is_postgres():
         cur.execute(
@@ -18,28 +29,56 @@ def ensure_blob_columns(cur) -> None:
             WHERE table_schema='public' AND table_name='pdf_ingest_files'
             """
         )
-        cols = {row["column_name"] for row in cur.fetchall()}
+        cols = set()
+        for row in cur.fetchall():
+            try:
+                cols.add(row["column_name"])
+            except Exception:  # noqa: BLE001
+                cols.add(row[0])
         if "file_blob" not in cols:
-            cur.execute("ALTER TABLE pdf_ingest_files ADD COLUMN file_blob BYTEA")
+            try:
+                cur.execute("ALTER TABLE pdf_ingest_files ADD COLUMN IF NOT EXISTS file_blob BYTEA")
+            except Exception:  # noqa: BLE001
+                try:
+                    cur.execute("ALTER TABLE pdf_ingest_files ADD COLUMN file_blob BYTEA")
+                except Exception:  # noqa: BLE001
+                    pass
         cur.execute(
             """
             SELECT column_name FROM information_schema.columns
             WHERE table_schema='public' AND table_name='color_jobs'
             """
         )
-        cols = {row["column_name"] for row in cur.fetchall()}
+        cols = set()
+        for row in cur.fetchall():
+            try:
+                cols.add(row["column_name"])
+            except Exception:  # noqa: BLE001
+                cols.add(row[0])
         if "thumbnail_blob" not in cols:
-            cur.execute("ALTER TABLE color_jobs ADD COLUMN thumbnail_blob BYTEA")
+            try:
+                cur.execute("ALTER TABLE color_jobs ADD COLUMN IF NOT EXISTS thumbnail_blob BYTEA")
+            except Exception:  # noqa: BLE001
+                try:
+                    cur.execute("ALTER TABLE color_jobs ADD COLUMN thumbnail_blob BYTEA")
+                except Exception:  # noqa: BLE001
+                    pass
         return
 
     cur.execute("PRAGMA table_info(pdf_ingest_files)")
     cols = {row[1] for row in cur.fetchall()}
     if "file_blob" not in cols:
-        cur.execute("ALTER TABLE pdf_ingest_files ADD COLUMN file_blob BLOB")
+        try:
+            cur.execute("ALTER TABLE pdf_ingest_files ADD COLUMN file_blob BLOB")
+        except Exception:  # noqa: BLE001
+            pass
     cur.execute("PRAGMA table_info(color_jobs)")
     cols = {row[1] for row in cur.fetchall()}
     if "thumbnail_blob" not in cols:
-        cur.execute("ALTER TABLE color_jobs ADD COLUMN thumbnail_blob BLOB")
+        try:
+            cur.execute("ALTER TABLE color_jobs ADD COLUMN thumbnail_blob BLOB")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _as_bytes(value) -> bytes | None:
@@ -51,14 +90,18 @@ def _as_bytes(value) -> bytes | None:
         return bytes(value)
     if isinstance(value, bytes):
         return value
-    return None
+    # psycopg2 Binary buffer
+    try:
+        return bytes(value)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def store_ingest_blob(cur, *, file_path: str, content: bytes) -> None:
     ensure_blob_columns(cur)
     cur.execute(
         "UPDATE pdf_ingest_files SET file_blob=?, file_size=? WHERE file_path=?",
-        (content, len(content), file_path),
+        (_pg_binary(content), len(content), file_path),
     )
 
 
@@ -66,7 +109,7 @@ def store_ingest_blob_by_id(cur, ingest_id: int, content: bytes) -> None:
     ensure_blob_columns(cur)
     cur.execute(
         "UPDATE pdf_ingest_files SET file_blob=?, file_size=? WHERE id=?",
-        (content, len(content), ingest_id),
+        (_pg_binary(content), len(content), ingest_id),
     )
 
 
@@ -105,7 +148,7 @@ def store_thumbnail_blob(cur, *, job_id: int, png_path: Path | None = None, png_
         data = png_path.read_bytes()
     if not data:
         return
-    cur.execute("UPDATE color_jobs SET thumbnail_blob=? WHERE id=?", (data, job_id))
+    cur.execute("UPDATE color_jobs SET thumbnail_blob=? WHERE id=?", (_pg_binary(data), job_id))
 
 
 def load_thumbnail_blob(cur, *, file_hash_prefix: str) -> tuple[bytes, str] | None:

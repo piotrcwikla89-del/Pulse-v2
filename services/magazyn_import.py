@@ -467,66 +467,85 @@ def import_magazyn_excel(cur, content: bytes, *, imported_by: str = "admin") -> 
 
     if polki_rows:
         cur.execute("DELETE FROM magazyn_polki")
-        for item in polki_rows:
-            cur.execute(
-                "INSERT INTO magazyn_polki (polka, max_ilosc) VALUES (?, ?)",
-                (item["polka"], item["max_ilosc"]),
-            )
-            report.polki_imported += 1
+        cur.executemany(
+            "INSERT INTO magazyn_polki (polka, max_ilosc) VALUES (?, ?)",
+            [(item["polka"], item["max_ilosc"]) for item in polki_rows],
+        )
+        report.polki_imported = len(polki_rows)
 
-    for item in rows:
-        cur.execute(
+    farba_params = [
+        (
+            item["pantone"],
+            item["lub"] or None,
+            item["artwork"] or None,
+            item["polka"] or None,
+            item["waga"],
+            item["status"],
+            item["data_produkcji"],
+        )
+        for item in rows
+    ]
+    if farba_params:
+        cur.executemany(
             """
             INSERT INTO farby (pantone, lub, artwork, polka, waga, status, data_produkcji)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                item["pantone"],
-                item["lub"] or None,
-                item["artwork"] or None,
-                item["polka"] or None,
-                item["waga"],
-                item["status"],
-                item["data_produkcji"],
-            ),
+            farba_params,
         )
-        report.imported += 1
+        report.imported = len(farba_params)
 
     if baza_rows:
-        for op in baza_rows:
-            cur.execute(
+        now_fallback = datetime.now().strftime("%Y-%m-%d %H:%M")
+        op_params = [
+            (
+                op["data"] or now_fallback,
+                op["typ"],
+                op["farba"],
+                op["ilosc"],
+                op["polka"],
+                op["uwagi"] or "",
+                None,
+            )
+            for op in baza_rows
+        ]
+        # Partie — unikamy timeoutu Gunicorna na Render przy ~6k wierszach.
+        batch = 500
+        for i in range(0, len(op_params), batch):
+            chunk = op_params[i : i + batch]
+            cur.executemany(
                 """
                 INSERT INTO operacje (data, typ, farba, ilosc, polka, uwagi, farba_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    op["data"] or datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    op["typ"],
-                    op["farba"],
-                    op["ilosc"],
-                    op["polka"],
-                    op["uwagi"] or "",
-                    None,
-                ),
+                chunk,
             )
-            report.baza_imported += 1
+            report.baza_imported += len(chunk)
+            try:
+                conn = getattr(cur, "connection", None)
+                if conn is not None:
+                    conn.commit()
+            except Exception:  # noqa: BLE001
+                pass
     else:
-        # Bez Bazy: dla zutylizowanych zapisz przyczynę z Magazynu do historii.
-        for item in rows:
-            if item["status"] != "zutylizowana":
-                continue
-            cur.execute(
+        disposed_ops = [
+            (
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                item["pantone"],
+                str(item["waga"]),
+                item["polka"] or "",
+                item.get("przyczyna") or "",
+            )
+            for item in rows
+            if item["status"] == "zutylizowana"
+        ]
+        if disposed_ops:
+            cur.executemany(
                 """
                 INSERT INTO operacje (data, typ, farba, ilosc, polka, uwagi, farba_id)
                 VALUES (?, 'utylizacja', ?, ?, ?, ?, NULL)
                 """,
-                (
-                    datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    item["pantone"],
-                    str(item["waga"]),
-                    item["polka"] or "",
-                    item.get("przyczyna") or "",
-                ),
+                disposed_ops,
             )
 
     dodaj_operacje(
