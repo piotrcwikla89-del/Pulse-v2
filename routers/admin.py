@@ -319,8 +319,8 @@ def admin_planner_scan(
         if save_as_root in ("1", "on", "true"):
             set_planner_setting(cur, "planner_pdf_root", folder)
             conn.commit()
-        # Tylko rejestracja — OCR idzie partiami z /admin/planner-process-batch (bez 502).
-        summary = scan_pdf_folder(cur, folder, process=False, limit=0, requeue_weak=True)
+        # Tylko rejestracja — bez requeue (worker); unika deadlocku z OCR workerem.
+        summary = scan_pdf_folder(cur, folder, process=False, limit=0, requeue_weak=False)
         conn.commit()
     except Exception as exc:  # noqa: BLE001
         try:
@@ -377,6 +377,8 @@ async def admin_upload_pdfs(
 
     from services.runtime_env import planner_upload_dir
 
+    import time
+
     try:
         staging = planner_upload_dir()
         saved = 0
@@ -394,16 +396,38 @@ async def admin_upload_pdfs(
         if saved == 0:
             return RedirectResponse("/admin?error=Nie+wgrano+plik%C3%B3w+PDF", status_code=303)
 
-        cur = conn.cursor()
-        from services.planner.pdf_blobs import ensure_blob_columns
+        last_exc: Exception | None = None
+        summary = None
+        for attempt in range(1, 4):
+            cur = conn.cursor()
+            try:
+                from services.planner.pdf_blobs import ensure_blob_columns
 
-        ensure_blob_columns(cur)
-        set_planner_setting(cur, "planner_pdf_root", str(staging))
-        # Szybka rejestracja + blob w DB (worker OCR na Render nie widzi dysku web).
-        summary = scan_pdf_folder(cur, str(staging), process=False, limit=0, requeue_weak=False)
-        conn.commit()
-        pending = pending_ingest_count(cur)
-        msg = f"Wgrano {saved} PDF. {summary.as_text()}"
+                ensure_blob_columns(cur)
+                set_planner_setting(cur, "planner_pdf_root", str(staging))
+                # Tylko rejestracja + blob — bez linkowania planów (to robi worker).
+                summary = scan_pdf_folder(
+                    cur, str(staging), process=False, limit=0, requeue_weak=False
+                )
+                conn.commit()
+                last_exc = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                try:
+                    conn.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                if "deadlock" in str(exc).lower() and attempt < 3:
+                    time.sleep(0.4 * attempt)
+                    continue
+                raise
+
+        if last_exc is not None:
+            raise last_exc
+
+        pending = pending_ingest_count(conn.cursor())
+        msg = f"Wgrano {saved} PDF. {summary.as_text() if summary else ''}"
         if pending:
             msg += f" · OCR w kolejce workera ({pending}; PDF w bazie)"
         return RedirectResponse(f"/admin?success={quote(msg)}", status_code=303)

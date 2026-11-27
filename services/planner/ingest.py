@@ -153,6 +153,8 @@ def scan_pdf_folder(
             except Exception:  # noqa: BLE001
                 pass
             summary.new_pending += 1
+            # Krótka transakcja na plik — mniej deadlocki z OCR workerem.
+            _commit(cur)
             continue
 
         row_mtime = row["file_mtime"] if hasattr(row, "keys") else row[2]
@@ -175,6 +177,7 @@ def scan_pdf_folder(
             except Exception:  # noqa: BLE001
                 pass
             summary.new_pending += 1
+            _commit(cur)
         else:
             summary.unchanged += 1
             if row_status == "done":
@@ -201,15 +204,9 @@ def scan_pdf_folder(
             f" | pending={pending_ingest_count(cur)}"
         )
     else:
-        # Szybka ścieżka HTTP: tylko kolejka pending, bez PDF/OCR/thumbs.
-        from services.planner.job_link import link_production_plans
-
-        link_report = link_production_plans(cur)
-        extra = (
-            f" | powiązano planów={link_report.get('linked', 0)}"
-            f" | pending={pending_ingest_count(cur)}"
-            f" | OCR=worker"
-        )
+        # Szybka ścieżka HTTP: tylko rejestracja kolejki.
+        # Bez link_production_plans — worker też linkuje → deadlock web↔OCR na Postgres.
+        extra = f" | pending={pending_ingest_count(cur)} | OCR=worker"
 
     set_planner_setting(cur, "planner_last_scan_at", _now_iso())
     set_planner_setting(cur, "planner_last_scan_summary", summary.as_text() + extra)

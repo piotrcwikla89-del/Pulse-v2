@@ -7,6 +7,9 @@ from pathlib import Path
 
 from db_compat import is_postgres
 
+# Po udanym ensure w procesie — nie rób DDL przy każdym uploadzie (deadlock z workerem).
+_BLOB_COLUMNS_READY = False
+
 
 def _pg_binary(data: bytes):
     if not is_postgres():
@@ -21,6 +24,10 @@ def _pg_binary(data: bytes):
 
 def ensure_blob_columns(cur) -> None:
     """Dodaje file_blob / thumbnail_blob jeśli brak (idempotentnie)."""
+
+    global _BLOB_COLUMNS_READY
+    if _BLOB_COLUMNS_READY:
+        return
 
     if is_postgres():
         cur.execute(
@@ -63,6 +70,7 @@ def ensure_blob_columns(cur) -> None:
                     cur.execute("ALTER TABLE color_jobs ADD COLUMN thumbnail_blob BYTEA")
                 except Exception:  # noqa: BLE001
                     pass
+        _BLOB_COLUMNS_READY = True
         return
 
     cur.execute("PRAGMA table_info(pdf_ingest_files)")
@@ -79,6 +87,7 @@ def ensure_blob_columns(cur) -> None:
             cur.execute("ALTER TABLE color_jobs ADD COLUMN thumbnail_blob BLOB")
         except Exception:  # noqa: BLE001
             pass
+    _BLOB_COLUMNS_READY = True
 
 
 def _as_bytes(value) -> bytes | None:
