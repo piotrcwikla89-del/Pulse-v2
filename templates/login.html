@@ -140,16 +140,20 @@
         <form method="post" action="/login">
             <div class="mb-3">
                 <label for="username" class="form-label">Nazwa użytkownika:</label>
-                <input type="text" name="username" id="username" class="form-control" placeholder="np. drukarz1" required>
+                <input type="text" name="username" id="username" class="form-control" placeholder="np. admin" required autocomplete="username">
             </div>
             <div class="mb-3">
                 <label for="password" class="form-label">Hasło:</label>
-                <input type="password" name="password" id="password" class="form-control" placeholder="••••••••" required>
+                <input type="password" name="password" id="password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
             </div>
             <button type="submit" class="btn btn-login w-100">
                 <i class="fas fa-sign-in-alt"></i> Zaloguj się
             </button>
         </form>
+        <p class="small text-muted mt-3 mb-0" style="color:#5a6a7a !important">
+            Demo: <code>admin</code> / <code>admin123</code>
+            · planista: <code>planista1</code> / <code>planista123</code>
+        </p>
     </div>
 </div>
 

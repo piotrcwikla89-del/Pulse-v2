@@ -64,10 +64,10 @@ def init_jinja_env() -> None:
         env.filters["tojson"] = _tojson
 
 
-def render_template(name: str, context: dict) -> HTMLResponse:
+def render_template(name: str, context: dict, status_code: int = 200) -> HTMLResponse:
     init_jinja_env()
     template = env.get_template(name)
-    return HTMLResponse(template.render(context))
+    return HTMLResponse(template.render(context), status_code=status_code)
 
 
 # ==================== DB HELPERY ====================
