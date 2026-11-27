@@ -8,13 +8,12 @@ W produkcji ustaw SESSION_SECRET jako zmienną środowiskową.
 import os
 import secrets
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from db_compat import get_db as _get_db_raw, is_postgres
-from helpers import get_base_path, render_template, seed_notification_settings_rows, seed_problem_categories
+from helpers import get_base_path, seed_notification_settings_rows, seed_problem_categories
 from services.planner.schema import create_planner_tables
 from services.runtime_env import is_render, planner_thumbs_dir
 
@@ -30,64 +29,47 @@ if is_render() and not os.environ.get("SESSION_SECRET"):
         "SESSION_SECRET nieustawiony — ustaw w Environment Render przed produkcją/demo."
     )
 
-# https_only tylko na Render / gdy FORCE_HTTPS=1.
-# W Cloud Agent (proxy HTTPS → HTTP w podzie) Secure cookie blokowałoby sesję.
-_https_only = is_render() or os.environ.get("FORCE_HTTPS", "").lower() in ("1", "true", "yes")
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
-    session_cookie="pulse_session",
-    https_only=_https_only,
+    https_only=is_render() or os.environ.get("FORCE_HTTPS", "").lower() in ("1", "true", "yes"),
     same_site="lax",
-    max_age=14 * 24 * 60 * 60,
 )
-
-
-def _wants_json(request: Request) -> bool:
-    accept = (request.headers.get("accept") or "").lower()
-    xrw = (request.headers.get("x-requested-with") or "").lower()
-    if xrw == "xmlhttprequest":
-        return True
-    return "application/json" in accept and "text/html" not in accept
-
-
-@app.exception_handler(HTTPException)
-async def _http_exception_handler(request: Request, exc: HTTPException):
-    """HTML redirect/login zamiast surowego JSON {detail: Brak dostępu}."""
-
-    if _wants_json(request):
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
-
-    if exc.status_code in (401, 303):
-        location = "/login"
-        if exc.headers and exc.headers.get("Location"):
-            location = exc.headers["Location"]
-        return RedirectResponse(location, status_code=303)
-
-    if exc.status_code == 403:
-        return render_template(
-            "login.html",
-            {
-                "error": "Brak dostępu — użyj konta admin lub planista.",
-                "operators": [],
-                "logo_url": "/static/logo_duze.svg",
-            },
-            status_code=403,
-        )
-
-    from fastapi.responses import JSONResponse
-
-    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
 app.mount("/static", StaticFiles(directory=os.path.join(get_base_path(), "static")), name="static")
 
-_thumbs_dir = planner_thumbs_dir()
-app.mount(
-    "/media/planner_thumbs",
-    StaticFiles(directory=str(_thumbs_dir)),
-    name="planner_thumbs",
-)
+# Miniatury: trasa zamiast StaticFiles — przy braku pliku (Render /tmp) regeneruje z PDF.
+@app.get("/media/planner_thumbs/{filename:path}")
+def serve_planner_thumb(filename: str):
+    from fastapi.responses import FileResponse, RedirectResponse, Response
+
+    from services.planner.thumb_serve import (
+        find_thumb_file,
+        hash_prefix_from_filename,
+        regenerate_thumb_for_hash,
+    )
+
+    # Zabezpieczenie przed path traversal
+    name = filename.replace("\\", "/").split("/")[-1]
+    path = find_thumb_file(name)
+    if path is not None:
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+    prefix = hash_prefix_from_filename(name)
+    if prefix:
+        url = regenerate_thumb_for_hash(prefix, force=True)
+        if url:
+            regenerated = find_thumb_file(url.rstrip("/").split("/")[-1])
+            if regenerated is not None:
+                if regenerated.name != name:
+                    return RedirectResponse(url, status_code=302)
+                return FileResponse(
+                    regenerated,
+                    media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=86400"},
+                )
+
+    return Response(status_code=404)
+
 
 # ==================== ROUTERY ====================
 from routers import auth, admin, magazyn, polimery, maszyny, kierownik, notifications, przewijarki, komponenty, traceability, planista  # noqa: E402
@@ -109,10 +91,12 @@ app.include_router(planista.router)
 def health():
     """Healthcheck dla Render (i monitoring)."""
 
+    thumbs = planner_thumbs_dir()
     return {
         "status": "ok",
         "postgres": is_postgres(),
         "render": is_render(),
+        "thumbs_dir": str(thumbs),
     }
 
 # ==================== INICJALIZACJA BAZY DANYCH ====================

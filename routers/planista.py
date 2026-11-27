@@ -212,6 +212,21 @@ def _remove_draft_items_for_job(cur, *, job_id: int | None, order_number: str | 
 
 def _serialize_job(job, colors: list[str] | None = None) -> dict:
     jid = int(_row_get(job, "id", 0))
+    thumb = _row_get(job, "thumbnail_path") or ""
+    if thumb:
+        try:
+            from services.planner.thumb_serve import ensure_job_thumbnail, find_thumb_file
+
+            name = str(thumb).rstrip("/").split("/")[-1]
+            if find_thumb_file(name) is None:
+                thumb = ensure_job_thumbnail(
+                    job_id=jid,
+                    source_path=_row_get(job, "source_path"),
+                    source_hash=_row_get(job, "source_hash"),
+                    thumbnail_path=str(thumb),
+                ) or ""
+        except Exception:  # noqa: BLE001
+            thumb = thumb or ""
     return {
         "id": jid,
         "order_number": _row_get(job, "order_number") or "",
@@ -220,7 +235,7 @@ def _serialize_job(job, colors: list[str] | None = None) -> dict:
         "artwork_number": _row_get(job, "artwork_number") or "",
         "color_count": int(_row_get(job, "color_count") or 0),
         "extraction_status": _row_get(job, "extraction_status") or "",
-        "thumbnail_path": _row_get(job, "thumbnail_path") or "",
+        "thumbnail_path": thumb,
         "colors": list(colors or []),
     }
 
@@ -292,9 +307,19 @@ def planista_panel(
     conn.commit()
 
     excluded_ids = _pool_excluded_job_ids(cur, draft_id)
+    loaded = _load_jobs(cur, q=q)
+    # Render: pliki miniaturek znikają z dysku — odtwórz z PDF albo wyczyść martwy URL.
+    try:
+        from services.planner.thumb_serve import heal_jobs_thumbnails
+
+        heal_jobs_thumbnails(cur, loaded, limit=80)
+        conn.commit()
+        loaded = _load_jobs(cur, q=q)
+    except Exception:  # noqa: BLE001
+        pass
     jobs = [
         j
-        for j in _load_jobs(cur, q=q)
+        for j in loaded
         if int(_row_get(j, "id", 0)) not in excluded_ids
     ]
     job_ids = [int(_row_get(j, "id", 0)) for j in jobs]
@@ -845,7 +870,7 @@ def _job_meta_for_plan(cur, plan_row, cache: dict) -> tuple[int | None, list[str
     count = len(unique_color_map(colors))
     if cjid:
         cur.execute(
-            "SELECT thumbnail_path, color_count FROM color_jobs WHERE id=?",
+            "SELECT thumbnail_path, color_count, source_path, source_hash FROM color_jobs WHERE id=?",
             (int(cjid),),
         )
         jrow = cur.fetchone()
@@ -854,6 +879,23 @@ def _job_meta_for_plan(cur, plan_row, cache: dict) -> tuple[int | None, list[str
             stored = int(_row_get(jrow, "color_count", 1) or 0)
             if not count and stored:
                 count = stored
+            try:
+                from services.planner.thumb_serve import ensure_job_thumbnail
+
+                healed = ensure_job_thumbnail(
+                    job_id=int(cjid),
+                    source_path=_row_get(jrow, "source_path"),
+                    source_hash=_row_get(jrow, "source_hash"),
+                    thumbnail_path=str(thumb) if thumb else None,
+                )
+                if healed and healed != thumb:
+                    cur.execute(
+                        "UPDATE color_jobs SET thumbnail_path=? WHERE id=?",
+                        (healed, int(cjid)),
+                    )
+                thumb = healed or ""
+            except Exception:  # noqa: BLE001
+                pass
     return cjid, colors, thumb, count
 
 

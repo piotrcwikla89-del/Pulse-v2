@@ -41,9 +41,16 @@ def planner_upload_dir() -> Path:
 
 
 def planner_thumbs_dir() -> Path:
-    """Miniatury serwowane z /static/planner_thumbs — lokalnie w repo; na Render też w static jeśli writable, inaczej /tmp + osobny mount nie jest dostępny.
-    Na Render static jest w image read-only poza buildem — zapisujemy do data i serwujemy osobno jeśli trzeba.
+    """Katalog zapisu miniaturek.
+
+    Na Render zawsze PULSE_DATA_DIR/planner_thumbs (spójny z serwowaniem).
+    Lokalnie preferuj static/planner_thumbs gdy jest zapisywalny.
     """
+
+    if is_render():
+        path = get_data_dir() / "planner_thumbs"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     from helpers import get_base_path
 
