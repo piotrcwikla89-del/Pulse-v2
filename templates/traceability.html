@@ -39,6 +39,12 @@
             <p class="mb-0">Pełny dossier zlecenia, LUB i artwork — historia, materiały, raporty i zdarzenia.</p>
         </div>
         <div>
+            {% if context.query and context.plans %}
+            <a href="/traceability/pdf?query={{ context.query|urlencode }}{% if context.plan_id %}&plan_id={{ context.plan_id }}{% endif %}"
+               class="btn btn-success btn-sm">
+                <i class="fas fa-file-pdf"></i> PDF
+            </a>
+            {% endif %}
             <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
             <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
         </div>
@@ -58,7 +64,7 @@
                 </div>
             </form>
             {% if context.query %}
-            <div class="mt-3 d-flex flex-wrap gap-2">
+            <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
                 {% if context.match_mode %}
                 <span class="trace-chip">Tryb: {{ context.match_mode }}</span>
                 {% endif %}
@@ -72,6 +78,12 @@
                 <span class="trace-chip">Artwork {{ context.keys.artwork_number }}</span>
                 {% endif %}
                 <span class="trace-chip">{{ context.plans_count }} zleceń w historii</span>
+                {% if context.plans %}
+                <a class="btn btn-sm btn-outline-success"
+                   href="/traceability/pdf?query={{ context.query|urlencode }}{% if context.plan_id %}&plan_id={{ context.plan_id }}{% endif %}">
+                    <i class="fas fa-file-pdf"></i> Generuj PDF
+                </a>
+                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -96,8 +108,9 @@
                             <th>LUB</th>
                             <th>Maszyna</th>
                             <th>Status</th>
-                            <th>Plan</th>
-                            <th>Wykonanie (rolki)</th>
+                            <th>Dzień zadruku</th>
+                            <th>Farby (prod. / wiek)</th>
+                            <th>Wykonanie</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -112,7 +125,30 @@
                             <td>{{ p.lub_number|lub if p.lub_number else '—' }}</td>
                             <td>{{ p.machine }}</td>
                             <td><span class="badge bg-secondary">{{ p.status }}</span></td>
-                            <td class="mini-meta">{{ p.planned.meters }} m · {{ p.planned.pieces }} szt.</td>
+                            <td class="mini-meta">{{ p.print_day or '—' }}</td>
+                            <td class="mini-meta">
+                                {% if p.materials_at_print %}
+                                    {% for m in p.materials_at_print[:4] %}
+                                    <div>
+                                        {{ m.pantone }}:
+                                        {{ m.data_produkcji_label or '—' }}
+                                        {% if m.age_days_on_print is not none %}
+                                        ({{ m.age_days_on_print }} dni)
+                                        {% endif %}
+                                        {% if m.alert_on_print == 'przeterminowana' %}
+                                        <span class="text-danger">przeterm.</span>
+                                        {% elif m.alert_on_print == 'uwaga' %}
+                                        <span class="text-warning">uwaga</span>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                    {% if p.materials_at_print|length > 4 %}
+                                    <div>+{{ p.materials_at_print|length - 4 }} więcej</div>
+                                    {% endif %}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
                             <td class="mini-meta">
                                 {{ p.roll_totals.meters }} m · {{ p.roll_totals.pieces }} szt.
                                 <div>{{ p.progress_pct }}% · {{ p.roll_totals.roll_count }} rolek</div>
@@ -135,22 +171,43 @@
         <div class="col-lg-6">
             <div class="card shadow-sm h-100">
                 <div class="card-header bg-success text-white">
-                    <h5 class="mb-0"><i class="fas fa-flask"></i> Farby powiązane z LUB</h5>
+                    <h5 class="mb-0"><i class="fas fa-flask"></i> Farby — data produkcji na dzień zadruku</h5>
                 </div>
                 <div class="card-body">
+                    {% if context.plan and context.plan.print_day %}
+                    <p class="mini-meta mb-2">Dzień zadruku zlecenia: <strong>{{ context.plan.print_day }}</strong></p>
+                    {% elif not context.plan %}
+                    <p class="mini-meta mb-2">Widok klasyfikacji — daty produkcji bez jednego dnia zadruku (różne zlecenia). Wejdź w dossier, by zobaczyć wiek na dzień pracy.</p>
+                    {% endif %}
                     {% if context.materials %}
                     <div class="table-responsive">
                         <table class="table table-sm mb-0">
                             <thead>
-                                <tr><th>Pantone</th><th>LUB</th><th>Półka</th><th>Waga</th><th>Status</th></tr>
+                                <tr>
+                                    <th>Pantone</th>
+                                    <th>LUB</th>
+                                    <th>Półka</th>
+                                    <th>Data produkcji</th>
+                                    <th>Wiek na zadruk</th>
+                                    <th>Alert</th>
+                                    <th>Status</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 {% for m in context.materials %}
-                                <tr>
+                                <tr class="{% if m.alert_on_print == 'przeterminowana' %}table-danger{% elif m.alert_on_print == 'uwaga' %}table-warning{% endif %}">
                                     <td>{{ m.pantone }}</td>
                                     <td>{{ m.lub|lub if m.lub else '—' }}</td>
                                     <td>{{ m.polka or '—' }}</td>
-                                    <td>{{ m.waga }}</td>
+                                    <td>{{ m.data_produkcji_label or m.data_produkcji or '—' }}</td>
+                                    <td>
+                                        {% if m.age_days_on_print is not none %}
+                                        {{ m.age_days_on_print }} dni
+                                        {% else %}
+                                        —
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ m.alert_on_print or m.mag_alert or 'ok' }}</td>
                                     <td>{{ m.status }}</td>
                                 </tr>
                                 {% endfor %}
@@ -158,7 +215,7 @@
                         </table>
                     </div>
                     {% else %}
-                    <p class="section-empty">Brak farb dla tego LUB.</p>
+                    <p class="section-empty">Brak farb dla tego zakresu.</p>
                     {% endif %}
                 </div>
             </div>
@@ -245,7 +302,43 @@
                     <div class="mini-meta">Data planu</div>
                     <strong>{{ context.plan.planned_date or '—' }}</strong>
                 </div>
+                <div class="col-md-3">
+                    <div class="mini-meta">Dzień zadruku</div>
+                    <strong>{{ context.plan.print_day or '—' }}</strong>
+                </div>
             </div>
+            {% if context.plan.materials_at_print %}
+            <hr>
+            <h6 class="mb-2">Farby użyte / powiązane — wiek na dzień zadruku</h6>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Pantone</th>
+                            <th>Data produkcji</th>
+                            <th>Dzień zadruku</th>
+                            <th>Wiek</th>
+                            <th>Alert</th>
+                            <th>Półka</th>
+                            <th>Waga</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in context.plan.materials_at_print %}
+                        <tr class="{% if m.alert_on_print == 'przeterminowana' %}table-danger{% elif m.alert_on_print == 'uwaga' %}table-warning{% endif %}">
+                            <td>{{ m.pantone }}</td>
+                            <td>{{ m.data_produkcji_label or '—' }}</td>
+                            <td>{{ m.print_day or context.plan.print_day or '—' }}</td>
+                            <td>{% if m.age_days_on_print is not none %}{{ m.age_days_on_print }} dni{% else %}—{% endif %}</td>
+                            <td>{{ m.alert_on_print or 'ok' }}</td>
+                            <td>{{ m.polka or '—' }}</td>
+                            <td>{{ m.waga }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
         </div>
     </div>
 

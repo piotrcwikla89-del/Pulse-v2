@@ -1,17 +1,21 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from starlette.requests import Request
 
 from dependencies import get_db, require_auth
 from helpers import (
     get_lub_farby,
     get_lub_polimery,
+    ink_status_on_print_day,
     lub_match_variants,
     normalize_lub_key,
     plan_production_targets,
     render_template,
     sum_print_control_rolls,
 )
+from services.traceability_pdf import render_traceability_pdf
 
 router = APIRouter()
 
@@ -324,6 +328,127 @@ def _empty_roll_totals() -> dict:
     }
 
 
+def _parse_day(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text[:26], fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def resolve_print_day(cur, plan: dict):
+    """Dzień zadruku pracy: pierwsza kontrola → start zlecenia → raport produkcji → planned_date."""
+    plan_id = plan.get("id")
+    if plan_id:
+        try:
+            cur.execute(
+                """
+                SELECT MIN(date) AS d FROM print_control_reports
+                WHERE plan_id=? AND date IS NOT NULL
+                """,
+                (plan_id,),
+            )
+            row = cur.fetchone()
+            day = _parse_day(row["d"] if row else None)
+            if day:
+                return day
+        except Exception:
+            pass
+        try:
+            cur.execute(
+                """
+                SELECT MIN(created_at) AS d FROM events
+                WHERE plan_id=? AND event_type='JOB_STARTED'
+                """,
+                (plan_id,),
+            )
+            row = cur.fetchone()
+            day = _parse_day(row["d"] if row else None)
+            if day:
+                return day
+        except Exception:
+            pass
+        try:
+            cur.execute(
+                "SELECT MIN(date) AS d FROM production_reports WHERE plan_id=?",
+                (plan_id,),
+            )
+            row = cur.fetchone()
+            day = _parse_day(row["d"] if row else None)
+            if day:
+                return day
+        except Exception:
+            pass
+    for key in ("planned_date", "created_at"):
+        day = _parse_day(plan.get(key))
+        if day:
+            return day
+    return None
+
+
+def _annotate_materials_for_print_day(materials: list, print_day) -> list:
+    out = []
+    for raw in materials:
+        item = dict(raw)
+        status = ink_status_on_print_day(item.get("data_produkcji"), print_day)
+        item["data_produkcji_label"] = status["data_produkcji"] or "—"
+        item["print_day"] = status["print_day"]
+        item["age_days_on_print"] = status["age_days_on_print"]
+        item["alert_on_print"] = status["alert_on_print"]
+        # zachowaj mag_alert jako alert względem dnia zadruku (dla dossier historycznego)
+        item["mag_alert"] = status["alert_on_print"]
+        out.append(item)
+    return out
+
+
+def materials_for_plan(cur, plan: dict) -> tuple[list, object | None]:
+    """Farby użyte / powiązane ze zleceniem z datą produkcji na dzień zadruku."""
+    print_day = resolve_print_day(cur, plan)
+    plan_id = plan.get("id")
+    materials: list = []
+    seen: set = set()
+
+    if plan_id:
+        try:
+            cur.execute(
+                """
+                SELECT f.* FROM farby f
+                JOIN farba_lub_assignments fla ON f.id = fla.farba_id
+                WHERE fla.plan_id=?
+                ORDER BY f.pantone, f.id
+                """,
+                (plan_id,),
+            )
+            for row in cur.fetchall():
+                fd = dict(row) if hasattr(row, "keys") else _as_dict(row, cur)
+                if fd.get("id") in seen:
+                    continue
+                seen.add(fd.get("id"))
+                materials.append(fd)
+        except Exception:
+            pass
+
+    if not materials and plan.get("lub_number"):
+        for fd in get_lub_farby(cur, plan["lub_number"]):
+            if fd.get("id") in seen:
+                continue
+            seen.add(fd.get("id"))
+            materials.append(fd)
+
+    return _annotate_materials_for_print_day(materials, print_day), print_day
+
+
 def _enrich_plan_summaries(cur, plans: list[dict]) -> list[dict]:
     out = []
     for plan in plans:
@@ -343,6 +468,9 @@ def _enrich_plan_summaries(cur, plans: list[dict]) -> list[dict]:
             item["progress_pct"] = round(float(rolls.get("meters") or 0) * 100 / planned_meters, 1)
         else:
             item["progress_pct"] = 0.0
+        mats, print_day = materials_for_plan(cur, plan)
+        item["print_day"] = print_day.isoformat() if print_day else None
+        item["materials_at_print"] = mats
         out.append(item)
     return out
 
@@ -378,7 +506,6 @@ def _build_traceability_context(cur, query: str, plan_id: int | None = None) -> 
     polimery = []
     lub_for_materials = (selected or {}).get("lub_number") or keys.get("lub_number")
     if lub_for_materials:
-        materials = get_lub_farby(cur, lub_for_materials)
         polimery = get_lub_polimery(cur, lub_for_materials)
 
     related = {"by_lub": [], "by_artwork": []}
@@ -419,6 +546,10 @@ def _build_traceability_context(cur, query: str, plan_id: int | None = None) -> 
         selected_dossier = _fetch_for_plan_ids(cur, [int(selected["id"])])
         selected_dossier["roll_totals"] = sum_print_control_rolls(cur, int(selected["id"]))
         selected_dossier["planned"] = plan_production_targets(selected)
+        materials = selected_view.get("materials_at_print") or []
+    elif lub_for_materials:
+        # klasyfikacja bez wybranego zlecenia — farby LUB; bez dnia zadruku (różne prace)
+        materials = _annotate_materials_for_print_day(get_lub_farby(cur, lub_for_materials), None)
 
     return {
         "query": query_norm,
@@ -469,3 +600,35 @@ def traceability(
         "user": {"username": user["username"], "role": user["role"]},
         "context": context,
     })
+
+
+@router.get("/traceability/pdf")
+def traceability_pdf(
+    request: Request,
+    query: str = Query(""),
+    plan_id: int | None = Query(None),
+    user=Depends(require_auth),
+    conn=Depends(get_db),
+):
+    if not _can_view_traceability(user):
+        return RedirectResponse("/dashboard", status_code=303)
+    query_norm = (query or "").strip()
+    if not query_norm and not plan_id:
+        return RedirectResponse("/traceability", status_code=303)
+
+    cur = conn.cursor()
+    context = _build_traceability_context(cur, query_norm, plan_id=plan_id)
+    if not context.get("plans"):
+        return RedirectResponse(
+            f"/traceability?query={query_norm}",
+            status_code=303,
+        )
+
+    pdf_bytes = render_traceability_pdf(context, generated_by=user["username"])
+    safe_q = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (query_norm or f"plan{plan_id}"))[:40]
+    filename = f"traceability_{safe_q}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

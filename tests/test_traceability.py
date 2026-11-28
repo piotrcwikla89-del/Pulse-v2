@@ -213,6 +213,10 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
     assert result["materials"][0]["pantone"] == "PANTONE 123"
     assert result["polimery"][0]["kolor"] == "Cyan"
     assert result["events"][0]["event_type"] == "JOB_STARTED"
+    assert result["plan"]["print_day"] == "2026-07-19"
+    assert result["materials"][0]["data_produkcji_label"] == "2026-07-19"
+    assert result["materials"][0]["age_days_on_print"] == 0
+    assert result["materials"][0]["alert_on_print"] == "ok"
 
     by_art = router._build_traceability_context(cur, "ART-77")
     assert by_art["plans_count"] >= 1
@@ -277,3 +281,38 @@ def test_lub_and_artwork_return_all_historical_jobs(tmp_path):
     assert "ZL-1001" in related_orders
     assert "ZL-3003" in related_orders
     assert "ZL-2002" not in related_orders
+
+
+def test_ink_age_on_print_day_and_pdf(tmp_path):
+    conn, cur = _setup_traceability_db(tmp_path)
+    cur.execute(
+        "INSERT INTO production_plans (machine, order_number, artwork_number, lub_number, order_name, status, assortment_prep_status, farby_prep_status, polimery_prep_status, meters, pieces, planned_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("D6", "ZL-AGE", "ART-AGE", "LUB500", "Aged ink job", "completed", "ready", "ready", "ready", 100, 200, "2025-06-01"),
+    )
+    plan_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO print_control_reports (machine, date, time, job_number, status, notes, created_by, plan_id, roll_meters, roll_pieces, dimensions_match, colors_match, barcode_grade, roll_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("D6", "2025-06-15", "09:00", "ZL-AGE", "OK", "", "op", plan_id, 50.0, 100, "tak", "tak", "A", 1),
+    )
+    cur.execute(
+        "INSERT INTO farby (pantone, lub, polka, waga, status, data_produkcji) VALUES (?, ?, ?, ?, ?, ?)",
+        ("OldRed", "LUB500", "A1", 1.0, "dostepna", "2024-01-01"),
+    )
+    farba_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO farba_lub_assignments (farba_id, lub_number, plan_id, assigned_by) VALUES (?, ?, ?, ?)",
+        (farba_id, "LUB500", plan_id, "op"),
+    )
+    conn.commit()
+
+    ctx = router._build_traceability_context(cur, "ZL-AGE")
+    assert ctx["plan"]["print_day"] == "2025-06-15"
+    mat = ctx["materials"][0]
+    assert mat["data_produkcji_label"] == "2024-01-01"
+    assert mat["age_days_on_print"] == 531  # 2025-06-15 - 2024-01-01
+    assert mat["alert_on_print"] == "przeterminowana"
+
+    from services.traceability_pdf import render_traceability_pdf
+
+    pdf = render_traceability_pdf(ctx, generated_by="tester")
+    assert pdf[:4] == b"%PDF"

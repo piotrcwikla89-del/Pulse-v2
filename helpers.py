@@ -111,31 +111,62 @@ def log_production_operation(cur, operation_type, description, machine=None, pla
 
 # ==================== DATY / ALERTY ====================
 
+def parse_production_date(data_val):
+    """Parsuje datę produkcji farby; sentinel ``0`` / pusta → None."""
+    if not data_val:
+        return None
+    if isinstance(data_val, datetime):
+        return data_val.date()
+    if isinstance(data_val, date):
+        return data_val
+    text = str(data_val).strip()
+    if not text or text in ("0", "-", "None", "null"):
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def alert_daty_as_of(data_val, as_of=None) -> str:
+    """Alert wieku farby względem wskazanego dnia (domyślnie dziś)."""
+    d = parse_production_date(data_val)
+    if not d:
+        return "ok"
+    ref = as_of or local_today()
+    if isinstance(ref, datetime):
+        ref = ref.date()
+    dni = (ref - d).days
+    if dni > 365:
+        return "przeterminowana"
+    if dni > 275:
+        return "uwaga"
+    return "ok"
+
+
 def alert_daty(data_val) -> str:
     """Akceptuje str (SQLite) lub date/datetime (PostgreSQL / sterowniki DB).
 
     Sentinel ``0`` / pusta data = brak daty produkcji (bez alertu).
     """
-    if not data_val:
-        return "ok"
-    if isinstance(data_val, datetime):
-        d = data_val.date()
-    elif isinstance(data_val, date):
-        d = data_val
-    else:
-        text = str(data_val).strip()
-        if not text or text in ("0", "-", "None", "null"):
-            return "ok"
-        try:
-            d = datetime.strptime(text[:10], "%Y-%m-%d").date()
-        except ValueError:
-            return "ok"
-    dni = (local_today() - d).days
-    if dni > 365:
-        return "przeterminowana"
-    elif dni > 275:
-        return "uwaga"
-    return "ok"
+    return alert_daty_as_of(data_val, as_of=local_today())
+
+
+def ink_status_on_print_day(data_produkcji, print_day) -> dict:
+    """Data produkcji farby + wiek / alert na dzień zadruku pracy."""
+    prod = parse_production_date(data_produkcji)
+    ref = print_day
+    if isinstance(ref, datetime):
+        ref = ref.date()
+    age_days = None
+    if prod and ref:
+        age_days = (ref - prod).days
+    return {
+        "data_produkcji": prod.isoformat() if prod else (None if data_produkcji in (None, "", "0", 0) else str(data_produkcji)),
+        "print_day": ref.isoformat() if ref else None,
+        "age_days_on_print": age_days,
+        "alert_on_print": alert_daty_as_of(data_produkcji, as_of=ref) if ref else alert_daty(data_produkcji),
+    }
 
 
 # ==================== REDIRECT URL ====================
