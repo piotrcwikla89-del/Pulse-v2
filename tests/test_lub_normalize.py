@@ -24,3 +24,8 @@ def test_lub_match_variants_include_common_forms():
     assert "4475" in variants
     assert "LUB4475" in variants
     assert "LUB 4475" in variants
+    assert "LUB-4475" in variants
+
+    hyphenated = lub_match_variants("88")
+    assert "LUB-88" in hyphenated
+    assert "LUB88" in hyphenated

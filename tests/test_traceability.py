@@ -17,6 +17,7 @@ def test_can_view_traceability_for_admin_and_manager():
 def test_build_traceability_context_finds_plan_and_events(tmp_path):
     db_path = tmp_path / "traceability.sqlite"
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     cur.execute(
@@ -170,3 +171,13 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
     assert result["plan"]["lub_number"] == "LUB-88"
     assert result["materials"][0]["pantone"] == "PANTONE 123"
     assert result["events"][0]["event_type"] == "JOB_STARTED"
+
+    by_art = router._build_traceability_context(cur, "ART-77")
+    assert by_art["plan"]["order_number"] == "ZL-1001"
+
+    by_lub = router._build_traceability_context(cur, "88")
+    assert by_lub["plan"]["order_number"] == "ZL-1001"
+    assert by_lub["materials"][0]["pantone"] == "PANTONE 123"
+
+    by_lub_full = router._build_traceability_context(cur, "LUB-88")
+    assert by_lub_full["plan"]["id"] == plan_id

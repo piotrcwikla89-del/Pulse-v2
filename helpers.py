@@ -476,7 +476,16 @@ def lub_match_variants(value) -> list[str]:
     raw = str(value or "").strip()
     key = normalize_lub_key(raw)
     variants: list[str] = []
-    for item in (raw, key, f"LUB{key}", f"LUB {key}", f"lub{key}", f"Lub{key}"):
+    for item in (
+        raw,
+        key,
+        f"LUB{key}",
+        f"LUB {key}",
+        f"LUB-{key}",
+        f"lub{key}",
+        f"Lub{key}",
+        f"lub-{key}",
+    ):
         if item and item not in variants:
             variants.append(item)
     return variants
