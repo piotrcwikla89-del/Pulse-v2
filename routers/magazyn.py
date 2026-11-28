@@ -399,9 +399,53 @@ def get_row(
 def historia(request: Request, user=Depends(require_auth), conn=Depends(get_db)):
     cur = conn.cursor()
     cur.execute("SELECT * FROM operacje ORDER BY id DESC")
-    operacje = cur.fetchall()
+    operacje = [dict(r) for r in cur.fetchall()]
+
+    type_order = ["przyjęcie", "wydanie", "zwrot", "utylizacja", "przywrócenie", "edycja", "import", "przypisanie_lub"]
+    by_type: dict[str, int] = {}
+    mass_by_type: dict[str, float] = {}
+    by_day: dict[str, dict[str, int]] = {}
+    for op in operacje:
+        typ = str(op.get("typ") or "inne")
+        by_type[typ] = by_type.get(typ, 0) + 1
+        try:
+            mass = float(op.get("ilosc") or 0)
+        except (TypeError, ValueError):
+            mass = 0.0
+        mass_by_type[typ] = mass_by_type.get(typ, 0.0) + mass
+        day = str(op.get("data") or "")[:10]
+        if day:
+            bucket = by_day.setdefault(day, {"wydanie": 0, "zwrot": 0, "utylizacja": 0, "przyjęcie": 0, "inne": 0})
+            key = typ if typ in ("wydanie", "zwrot", "utylizacja", "przyjęcie") else "inne"
+            bucket[key] = bucket.get(key, 0) + 1
+
+    labels_type = [t for t in type_order if t in by_type] + sorted(t for t in by_type if t not in type_order)
+    day_labels = sorted(by_day.keys())[-21:]
+    charts = {
+        "by_type": {
+            "labels": labels_type,
+            "counts": [by_type[t] for t in labels_type],
+            "masa": [round(mass_by_type.get(t, 0.0), 2) for t in labels_type],
+        },
+        "by_day": {
+            "labels": day_labels,
+            "przyjecie": [by_day[d].get("przyjęcie", 0) for d in day_labels],
+            "wydanie": [by_day[d].get("wydanie", 0) for d in day_labels],
+            "zwrot": [by_day[d].get("zwrot", 0) for d in day_labels],
+            "utylizacja": [by_day[d].get("utylizacja", 0) for d in day_labels],
+        },
+    }
+    kpi = {
+        "total": len(operacje),
+        "wydania": by_type.get("wydanie", 0),
+        "zwroty": by_type.get("zwrot", 0),
+        "utylizacje": by_type.get("utylizacja", 0),
+        "masa_utyl": round(mass_by_type.get("utylizacja", 0.0), 2),
+    }
     return render_template("historia.html", {
         "operacje": operacje,
+        "charts": charts,
+        "kpi": kpi,
         "user": {"username": user["username"], "role": user["role"]},
     })
 
@@ -518,11 +562,64 @@ def raport_utylizacji(
             ORDER BY data DESC
         """, (od_dom, do_dom))
         od, do = od_dom, do_dom
-    utylizacje = cur.fetchall()
+    utylizacje = [dict(r) for r in cur.fetchall()]
+    by_reason: dict[str, dict[str, float]] = {}
+    by_day: dict[str, float] = {}
+    by_farba: dict[str, dict[str, float]] = {}
+    total_masa = 0.0
+    for row in utylizacje:
+        powod = str(row.get("uwagi") or "").strip() or "(brak)"
+        try:
+            masa = float(row.get("ilosc") or 0)
+        except (TypeError, ValueError):
+            masa = 0.0
+        total_masa += masa
+        reason = by_reason.setdefault(powod, {"n": 0, "masa": 0.0})
+        reason["n"] += 1
+        reason["masa"] += masa
+        day = str(row.get("data") or "")[:10]
+        if day:
+            by_day[day] = by_day.get(day, 0.0) + masa
+        farba = str(row.get("farba") or "—")
+        fb = by_farba.setdefault(farba, {"n": 0, "masa": 0.0})
+        fb["n"] += 1
+        fb["masa"] += masa
+
+    reason_sorted = sorted(by_reason.items(), key=lambda x: x[1]["n"], reverse=True)
+    day_labels = sorted(by_day.keys())
+    top_farby = sorted(by_farba.items(), key=lambda x: x[1]["masa"], reverse=True)[:10]
+    charts = {
+        "reasons": {
+            "labels": [r[0] for r in reason_sorted],
+            "counts": [int(r[1]["n"]) for r in reason_sorted],
+            "masa": [round(r[1]["masa"], 2) for r in reason_sorted],
+        },
+        "by_day": {
+            "labels": day_labels,
+            "masa": [round(by_day[d], 2) for d in day_labels],
+            "counts": [
+                sum(1 for u in utylizacje if str(u.get("data") or "")[:10] == d)
+                for d in day_labels
+            ],
+        },
+        "top": {
+            "labels": [f[0] for f in top_farby],
+            "masa": [round(f[1]["masa"], 2) for f in top_farby],
+            "counts": [int(f[1]["n"]) for f in top_farby],
+        },
+    }
+    kpi = {
+        "count": len(utylizacje),
+        "masa": round(total_masa, 2),
+        "reasons": len(by_reason),
+        "avg": round(total_masa / len(utylizacje), 2) if utylizacje else 0,
+    }
     return render_template("raport_utylizacji.html", {
         "utylizacje": utylizacje,
         "od": od,
         "do": do,
+        "charts": charts,
+        "kpi": kpi,
         "user": {"username": user["username"], "role": user["role"]},
     })
 

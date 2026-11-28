@@ -7,101 +7,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/static/app-modern.css">
-    <style>
-        body.ink-dash {
-            background:
-                radial-gradient(circle at 12% 0%, rgba(14, 116, 144, 0.12), transparent 28%),
-                radial-gradient(circle at 88% 8%, rgba(255, 138, 61, 0.10), transparent 24%),
-                linear-gradient(180deg, #e8eef6 0%, #f4f7fb 55%, #eef2f7 100%);
-        }
-        body.ink-dash .card:hover { transform: none; }
-        body.ink-dash .card {
-            border-radius: 14px;
-            box-shadow: 0 2px 12px rgba(15, 63, 111, 0.06);
-            border: 1px solid rgba(29, 53, 87, 0.12);
-        }
-        .ink-kpi {
-            position: relative;
-            overflow: hidden;
-            height: 100%;
-            padding: 1rem 1.1rem;
-            background: #fff;
-        }
-        .ink-kpi .label {
-            font-size: 0.72rem;
-            font-weight: 800;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: #5b738a;
-            margin-bottom: 0.35rem;
-        }
-        .ink-kpi .value {
-            font-size: clamp(1.6rem, 2.8vw, 2.15rem);
-            font-weight: 800;
-            line-height: 1;
-            color: #0f3f6f;
-        }
-        .ink-kpi .hint {
-            margin-top: 0.35rem;
-            font-size: 0.8rem;
-            color: #6c7f93;
-        }
-        .ink-kpi::after {
-            content: "";
-            position: absolute;
-            right: -1.2rem;
-            bottom: -1.2rem;
-            width: 5rem;
-            height: 5rem;
-            border-radius: 50%;
-            opacity: 0.14;
-        }
-        .ink-kpi.tone-ok::after { background: #198754; }
-        .ink-kpi.tone-use::after { background: #0d6efd; }
-        .ink-kpi.tone-scrap::after { background: #6c757d; }
-        .ink-kpi.tone-mass::after { background: #0e7490; }
-        .ink-kpi.tone-warn::after { background: #f4b740; }
-        .ink-kpi.tone-danger::after { background: #d9534f; }
-        .ink-kpi.tone-ok .value { color: #157347; }
-        .ink-kpi.tone-use .value { color: #0b5ed7; }
-        .ink-kpi.tone-scrap .value { color: #495057; }
-        .ink-kpi.tone-danger .value { color: #b02a37; }
-        .ink-kpi.tone-warn .value { color: #997404; }
-        .chart-card .card-header {
-            background: #fff;
-            border-bottom: 1px solid rgba(29, 53, 87, 0.1);
-            font-weight: 700;
-            color: #0f3f6f;
-        }
-        .chart-box {
-            position: relative;
-            height: 260px;
-            padding: 0.5rem 0.75rem 0.85rem;
-        }
-        .chart-box.tall { height: 320px; }
-        .chart-box.short { height: 220px; }
-        .section-label {
-            font-size: 0.78rem;
-            font-weight: 800;
-            letter-spacing: 0.07em;
-            text-transform: uppercase;
-            color: #6c7f93;
-            margin: 0.35rem 0 0.75rem;
-        }
-        .mini-table {
-            font-size: 0.82rem;
-            margin: 0;
-        }
-        .mini-table th {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: #5b738a;
-            background: #f3f6fa !important;
-        }
-    </style>
 </head>
-<body class="bg-light ink-dash stock-page">
+<body class="bg-light stock-page">
 <div class="container-fluid px-3 px-lg-4 mt-3 mb-5">
     <div class="page-toolbar">
         <div>
@@ -265,7 +172,7 @@
             <div class="card chart-card">
                 <div class="card-header">Ostatnie snapshoty dzienne</div>
                 <div class="table-responsive">
-                    <table class="table table-sm mini-table mb-0">
+                    <table class="table table-sm ops-table mb-0">
                         <thead>
                             <tr>
                                 <th>Data</th>

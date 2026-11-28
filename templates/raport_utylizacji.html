@@ -8,71 +8,270 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/static/app-modern.css">
 </head>
-<body class="bg-light">
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-trash-alt"></i> Raport utylizacji</h1>
+<body class="bg-light stock-page">
+<div class="container-fluid px-3 px-lg-4 mt-3 mb-5">
+    <div class="page-toolbar">
         <div>
-            <span class="me-3"><i class="fas fa-user"></i> {{ user.username }} ({{ user.role }})</span>
-            <a href="/statystyki" class="btn btn-secondary"><i class="fas fa-chart-bar"></i> Statystyki</a>
-            <a href="/magazyn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Magazyn</a>
+            <h1 class="mb-1"><i class="fas fa-trash-alt"></i> Raport utylizacji</h1>
+            <p class="mb-0">Okres {{ od }} — {{ do }} · masa i przyczyny utylizacji farb.</p>
+        </div>
+        <div class="toolbar-actions">
+            <span class="btn btn-outline-secondary btn-sm disabled"><i class="fas fa-user"></i> {{ user.username }}</span>
+            <a href="/magazyn/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-chart-pie"></i> Dashboard</a>
+            <a href="/historia" class="btn btn-outline-dark btn-sm"><i class="fas fa-history"></i> Historia</a>
+            <a href="/magazyn" class="btn btn-secondary btn-sm"><i class="fas fa-boxes"></i> Magazyn</a>
             <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
         </div>
     </div>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-primary text-white"><i class="fas fa-filter"></i> Filtruj według daty</div>
-        <div class="card-body">
-            <form method="get" action="/raport_utylizacji" class="row g-3 align-items-end">
+    <div class="stock-panel mb-3">
+        <div class="stock-panel-head"><i class="fas fa-filter"></i> Zakres dat</div>
+        <div class="stock-panel-body">
+            <form method="get" action="/raport_utylizacji" class="row g-2 align-items-end">
                 <div class="col-auto">
-                    <label class="form-label">Od:</label>
-                    <input type="date" name="od" class="form-control" value="{{ od }}">
+                    <label class="form-label small mb-0">Od</label>
+                    <input type="date" name="od" class="form-control form-control-sm" value="{{ od }}">
                 </div>
                 <div class="col-auto">
-                    <label class="form-label">Do:</label>
-                    <input type="date" name="do" class="form-control" value="{{ do }}">
+                    <label class="form-label small mb-0">Do</label>
+                    <input type="date" name="do" class="form-control form-control-sm" value="{{ do }}">
                 </div>
                 <div class="col-auto">
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtruj</button>
-                </div>
-                <div class="col-auto">
-                    <a href="/export_raport_utylizacji?od={{ od }}&do={{ do }}" class="btn btn-success"><i class="fas fa-file-csv"></i> Eksportuj CSV</a>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Filtruj</button>
+                    <a href="/export_raport_utylizacji?od={{ od }}&do={{ do }}" class="btn btn-success btn-sm"><i class="fas fa-file-csv"></i> CSV</a>
                 </div>
             </form>
         </div>
     </div>
 
-    <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white"><i class="fas fa-list"></i> Utylizacje</div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th><i class="fas fa-calendar"></i> Data</th>
-                            <th><i class="fas fa-palette"></i> Farba</th>
-                            <th><i class="fas fa-weight-hanging"></i> Ilość (kg)</th>
-                            <th><i class="fas fa-comment"></i> Powód</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for u in utylizacje %}
-                        <tr>
-                            <td>{{ u.data }}</td>
-                            <td>{{ u.farba }}</td>
-                            <td>{{ u.ilosc }}</td>
-                            <td>{{ u.uwagi }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="4" class="text-center">Brak utylizacji w wybranym okresie</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <div class="section-label">KPI okresu</div>
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-xl-3">
+            <div class="card ink-kpi tone-danger">
+                <div class="label">Utylizacje</div>
+                <div class="value">{{ kpi.count }}</div>
+                <div class="hint">liczba pozycji</div>
+            </div>
+        </div>
+        <div class="col-6 col-xl-3">
+            <div class="card ink-kpi tone-mass">
+                <div class="label">Masa łącznie</div>
+                <div class="value">{{ kpi.masa }}</div>
+                <div class="hint">kg</div>
+            </div>
+        </div>
+        <div class="col-6 col-xl-3">
+            <div class="card ink-kpi tone-warn">
+                <div class="label">Przyczyny</div>
+                <div class="value">{{ kpi.reasons }}</div>
+                <div class="hint">unikalne powody</div>
+            </div>
+        </div>
+        <div class="col-6 col-xl-3">
+            <div class="card ink-kpi">
+                <div class="label">Średnia masa</div>
+                <div class="value">{{ kpi.avg }}</div>
+                <div class="hint">kg / pozycja</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-5">
+            <div class="card chart-card h-100">
+                <div class="card-header">Przyczyny utylizacji</div>
+                {% if charts.reasons.labels %}
+                <div class="chart-box">
+                    <canvas id="chartReasons"></canvas>
+                </div>
+                {% else %}
+                <p class="p-3 text-muted mb-0">Brak danych w wybranym okresie.</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="card chart-card h-100">
+                <div class="card-header">Masa utylizacji w czasie</div>
+                {% if charts.by_day.labels %}
+                <div class="chart-box">
+                    <canvas id="chartDays"></canvas>
+                </div>
+                {% else %}
+                <p class="p-3 text-muted mb-0">Brak danych w wybranym okresie.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-5">
+            <div class="card chart-card h-100">
+                <div class="card-header">Top farby (kg)</div>
+                {% if charts.top.labels %}
+                <div class="chart-box">
+                    <canvas id="chartTop"></canvas>
+                </div>
+                {% else %}
+                <p class="p-3 text-muted mb-0">Brak danych.</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="card chart-card h-100">
+                <div class="card-header d-flex justify-content-between">
+                    <span>Szczegóły utylizacji</span>
+                    <span class="small text-muted">{{ kpi.count }} pozycji</span>
+                </div>
+                <div class="ops-table-wrap">
+                    <table class="table ops-table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Farba</th>
+                                <th class="text-end">Ilość (kg)</th>
+                                <th>Powód</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in utylizacje %}
+                            <tr>
+                                <td class="text-nowrap">{{ u.data }}</td>
+                                <td>{{ u.farba }}</td>
+                                <td class="text-end">{{ u.ilosc }}</td>
+                                <td>{{ u.uwagi }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="text-center text-muted py-4">Brak utylizacji w wybranym okresie</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<script type="application/json" id="scrap-data">{{ charts|tojson }}</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(() => {
+    const data = JSON.parse(document.getElementById('scrap-data').textContent);
+    const grid = 'rgba(15, 63, 111, 0.08)';
+    Chart.defaults.font.family = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    Chart.defaults.color = '#5b738a';
+    const legend = { position: 'bottom', labels: { boxWidth: 12, usePointStyle: true } };
+    const palette = ['#dc3545', '#fd7e14', '#6f42c1', '#0d6efd', '#198754', '#6610f2', '#20c997', '#0e7490'];
+
+    const reasonsEl = document.getElementById('chartReasons');
+    if (reasonsEl && data.reasons.labels.length) {
+        new Chart(reasonsEl, {
+            type: 'doughnut',
+            data: {
+                labels: data.reasons.labels,
+                datasets: [{
+                    data: data.reasons.counts,
+                    backgroundColor: data.reasons.labels.map((_, i) => palette[i % palette.length]),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '55%',
+                plugins: {
+                    legend: { ...legend, position: 'right' },
+                    tooltip: {
+                        callbacks: {
+                            afterLabel: (ctx) => `Masa: ${data.reasons.masa[ctx.dataIndex]} kg`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    const daysEl = document.getElementById('chartDays');
+    if (daysEl && data.by_day.labels.length) {
+        new Chart(daysEl, {
+            type: 'bar',
+            data: {
+                labels: data.by_day.labels,
+                datasets: [{
+                    label: 'Masa kg',
+                    data: data.by_day.masa,
+                    backgroundColor: 'rgba(220, 53, 69, 0.75)',
+                    borderRadius: 6,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Liczba',
+                    data: data.by_day.counts,
+                    type: 'line',
+                    borderColor: '#0f3f6f',
+                    backgroundColor: 'transparent',
+                    tension: 0.3,
+                    yAxisID: 'y1',
+                    pointRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: grid },
+                        title: { display: true, text: 'kg' }
+                    },
+                    y1: {
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: { drawOnChartArea: false },
+                        ticks: { precision: 0 },
+                        title: { display: true, text: 'szt.' }
+                    }
+                }
+            }
+        });
+    }
+
+    const topEl = document.getElementById('chartTop');
+    if (topEl && data.top.labels.length) {
+        new Chart(topEl, {
+            type: 'bar',
+            data: {
+                labels: data.top.labels,
+                datasets: [{
+                    label: 'kg',
+                    data: data.top.masa,
+                    backgroundColor: '#b02a37',
+                    borderRadius: 6,
+                    maxBarThickness: 24
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            afterLabel: (ctx) => `Pozycje: ${data.top.counts[ctx.dataIndex]}`
+                        }
+                    }
+                },
+                scales: {
+                    x: { beginAtZero: true, grid: { color: grid } },
+                    y: { grid: { display: false } }
+                }
+            }
+        });
+    }
+})();
+</script>
 {% include '_notification_poll.html' %}
 </body>
 </html>
