@@ -388,7 +388,7 @@ def get_row(
     f = cur.fetchone()
     if not f:
         from fastapi.responses import HTMLResponse
-        return HTMLResponse(".<td colspan='7'>Błąd: farba nie istnieje</td>", status_code=404)
+        return HTMLResponse("<tr><td colspan='8'>Błąd: farba nie istnieje</td></tr>", status_code=404)
     alert = alert_daty(f["data_produkcji"])
     f_dict = dict(f)
     f_dict["alert"] = alert

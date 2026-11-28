@@ -9,10 +9,15 @@
     <link rel="stylesheet" href="/static/app-modern.css">
     <style>
         .utylizowana-row {
-            opacity: 0.6;
-            background-color: #f8f9fa;
-            text-decoration: line-through;
+            opacity: 0.65;
             color: #6c757d;
+        }
+        .utylizowana-row td {
+            text-decoration: line-through;
+        }
+        .utylizowana-row .actions-cell,
+        .utylizowana-row .actions-cell * {
+            text-decoration: none;
         }
         .toast-container {
             position: fixed;
@@ -22,21 +27,24 @@
         }
     </style>
 </head>
-<body class="bg-light">
-<div class="container mt-4">
+<body class="bg-light stock-page">
+<div class="container-fluid mt-4 mb-5 px-3 px-lg-4">
 
     <div class="toast-container" id="toastContainer"></div>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-warehouse"></i> Magazyn farb</h1>
+    <div class="page-toolbar">
         <div>
-            <span class="me-3"><i class="fas fa-user"></i> {{ user.username }} ({{ user.role }})</span>
+            <h1 class="mb-1"><i class="fas fa-warehouse"></i> Magazyn farb</h1>
+            <p class="mb-0">Lista według lokalizacji — półka jako pierwszy identyfikator pozycji.</p>
+        </div>
+        <div class="toolbar-actions">
+            <span class="btn btn-outline-secondary btn-sm disabled"><i class="fas fa-user"></i> {{ user.username }}</span>
             <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
         </div>
     </div>
 
     {% if assign_lub %}
-    <div class="alert alert-warning border-warning border-2 shadow-sm d-flex align-items-center gap-3 mb-4" role="alert">
+    <div class="alert alert-warning border-warning border-2 shadow-sm d-flex align-items-center gap-3 mb-3" role="alert">
         <i class="fas fa-link fa-2x text-warning"></i>
         <div>
             <strong>Tryb ręcznego przypisania do LUB</strong><br>
@@ -51,106 +59,105 @@
     </div>
     {% endif %}
 
-    <div class="mb-3">
-        <a href="/dashboard" class="btn btn-outline-primary"><i class="fas fa-home"></i> Dashboard</a>
-        <a href="/magazyn/dashboard" class="btn btn-outline-primary"><i class="fas fa-tachometer-alt"></i> Dashboard farb</a>
-        <a href="/historia" class="btn btn-outline-dark"><i class="fas fa-history"></i> Historia</a>
-        <a href="/export" class="btn btn-outline-success"><i class="fas fa-file-csv"></i> Eksport CSV</a>
+    <div class="stock-toolbar">
+        <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
+        <a href="/magazyn/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-tachometer-alt"></i> Dashboard farb</a>
+        <a href="/historia" class="btn btn-outline-dark btn-sm"><i class="fas fa-history"></i> Historia</a>
+        <a href="/export" class="btn btn-outline-success btn-sm"><i class="fas fa-file-csv"></i> Eksport CSV</a>
     </div>
 
-    <!-- Formularz dodawania farby -->
-    <div class="card mb-4 shadow-sm">
-        <div class="card-header bg-primary text-white"><i class="fas fa-plus-circle"></i> Dodaj nową farbę</div>
-        <div class="card-body">
+    <div class="stock-panel">
+        <div class="stock-panel-head"><i class="fas fa-plus-circle"></i> Dodaj nową farbę</div>
+        <div class="stock-panel-body">
             <form method="post" action="/dodaj_farba" id="addForm">
-                <div class="row g-3">
-                    <div class="col-md-2">
-                        <input type="text" name="pantone" class="form-control" placeholder="Nazwa / Pantone" required>
+                <div class="row g-2 align-items-end">
+                    <div class="col-6 col-md-1">
+                        <label class="form-label small mb-0">Półka</label>
+                        <input type="text" name="polka" class="form-control form-control-sm" placeholder="Półka" required>
                     </div>
-                    <div class="col-md-1">
-                        <input type="text" name="lub" class="form-control" placeholder="LUB">
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-0">Nazwa / Pantone</label>
+                        <input type="text" name="pantone" class="form-control form-control-sm" placeholder="Nazwa / Pantone" required>
                     </div>
-                    <div class="col-md-2">
-                        <input type="text" name="artwork" class="form-control" placeholder="Artwork">
+                    <div class="col-6 col-md-1">
+                        <label class="form-label small mb-0">LUB</label>
+                        <input type="text" name="lub" class="form-control form-control-sm" placeholder="LUB">
                     </div>
-                    <div class="col-md-1">
-                        <input type="text" name="polka" class="form-control" placeholder="Półka" required>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-0">Artwork</label>
+                        <input type="text" name="artwork" class="form-control form-control-sm" placeholder="Artwork">
                     </div>
-                    <div class="col-md-2">
-                        <input type="date" name="data_produkcji" class="form-control" title="Puste = brak daty (0)">
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-0">Data prod.</label>
+                        <input type="date" name="data_produkcji" class="form-control form-control-sm" title="Puste = brak daty (0)">
                     </div>
-                    <div class="col-md-2">
-                        <input type="number" step="0.01" name="waga" class="form-control" placeholder="Waga (kg)" required>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-0">Waga (kg)</label>
+                        <input type="number" step="0.01" name="waga" class="form-control form-control-sm" placeholder="Waga (kg)" required>
                     </div>
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-success w-100"><i class="fas fa-save"></i> Dodaj</button>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-success btn-sm w-100"><i class="fas fa-save"></i> Dodaj</button>
                     </div>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Wyszukiwanie -->
-    <div class="card mb-4 shadow-sm">
-        <div class="card-header bg-secondary text-white"><i class="fas fa-search"></i> Wyszukiwanie</div>
-        <div class="card-body">
-            <form method="get" action="/magazyn" class="row g-3 align-items-end">
+    <div class="stock-panel">
+        <div class="stock-panel-head"><i class="fas fa-search"></i> Wyszukiwanie</div>
+        <div class="stock-panel-body">
+            <form method="get" action="/magazyn" class="row g-2 align-items-end">
                 <div class="col-auto">
-                    <label class="form-label">Szukaj w polu:</label>
-                    <select name="search_field" class="form-select">
+                    <label class="form-label small mb-0">Szukaj w polu</label>
+                    <select name="search_field" class="form-select form-select-sm">
+                        <option value="polka" {% if search_field == 'polka' %}selected{% endif %}>Półka</option>
                         <option value="lub" {% if search_field == 'lub' %}selected{% endif %}>LUB</option>
                         <option value="pantone" {% if search_field == 'pantone' %}selected{% endif %}>Nazwa</option>
                         <option value="artwork" {% if search_field == 'artwork' %}selected{% endif %}>Artwork</option>
-                        <option value="polka" {% if search_field == 'polka' %}selected{% endif %}>Półka</option>
                     </select>
                 </div>
                 <div class="col-auto">
-                    <label class="form-label">Wartość:</label>
-                    <input type="text" name="search_value" class="form-control" value="{{ search_value }}">
+                    <label class="form-label small mb-0">Wartość</label>
+                    <input type="text" name="search_value" class="form-control form-control-sm" value="{{ search_value }}">
                 </div>
                 <div class="col-auto">
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Szukaj</button>
-                </div>
-                <div class="col-auto">
-                    <a href="/magazyn" class="btn btn-secondary"><i class="fas fa-times"></i> Wyczyść</a>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Szukaj</button>
+                    <a href="/magazyn" class="btn btn-outline-secondary btn-sm"><i class="fas fa-times"></i> Wyczyść</a>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Przyciski filtrów -->
-    <div class="mb-3 d-flex flex-wrap gap-2">
-        <a href="/magazyn?filtr_alert=przeterminowana&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-danger"><i class="fas fa-exclamation-triangle"></i> Przeterminowane ({{licznik_przeterminowane}})</a>
-        <a href="/magazyn?filtr_alert=uwaga&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-warning"><i class="fas fa-clock"></i> Blisko terminu ({{licznik_uwaga}})</a>
-        <a href="/magazyn?status=dostepna&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-success"><i class="fas fa-check-circle"></i> Dostępne</a>
-        <a href="/magazyn?status=w_uzyciu&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-primary"><i class="fas fa-tools"></i> W użyciu</a>
-        <a href="/magazyn?status=zutylizowana&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-secondary"><i class="fas fa-trash-alt"></i> Zutylizowane ({{licznik_zutylizowane}})</a>
-        <a href="/magazyn?search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-dark"><i class="fas fa-sync-alt"></i> Reset filtrów</a>
+    <div class="stock-filters">
+        <a href="/magazyn?filtr_alert=przeterminowana&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-danger btn-sm"><i class="fas fa-exclamation-triangle"></i> Przeterminowane ({{licznik_przeterminowane}})</a>
+        <a href="/magazyn?filtr_alert=uwaga&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-warning btn-sm"><i class="fas fa-clock"></i> Blisko terminu ({{licznik_uwaga}})</a>
+        <a href="/magazyn?status=dostepna&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-success btn-sm"><i class="fas fa-check-circle"></i> Dostępne</a>
+        <a href="/magazyn?status=w_uzyciu&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-primary btn-sm"><i class="fas fa-tools"></i> W użyciu</a>
+        <a href="/magazyn?status=zutylizowana&search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-secondary btn-sm"><i class="fas fa-trash-alt"></i> Zutylizowane ({{licznik_zutylizowane}})</a>
+        <a href="/magazyn?search_field={{ search_field }}&search_value={{ search_value }}" class="btn btn-dark btn-sm"><i class="fas fa-sync-alt"></i> Reset filtrów</a>
     </div>
 
-    <!-- Przycisk zbiorczego pobierania (tylko gdy aktywne wyszukiwanie) -->
     {% if search_value %}
-    <div class="mb-3 d-flex gap-2">
-        <form method="post" action="/pobierz_wszystkie" id="pobierzWszystkieForm">
+    <div class="mb-3">
+        <form method="post" action="/pobierz_wszystkie" id="pobierzWszystkieForm" class="d-inline">
             <input type="hidden" name="search_field" value="{{ search_field }}">
             <input type="hidden" name="search_value" value="{{ search_value }}">
             <input type="hidden" name="filtr_alert" value="{{ filtr_alert }}">
             <input type="hidden" name="status" value="{{ status }}">
-            <button type="submit" class="btn btn-primary" onclick="return confirm('Pobrać wszystkie farby pasujące do kryteriów?')"><i class="fas fa-download"></i> Pobierz wszystkie</button>
+            <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('Pobrać wszystkie farby pasujące do kryteriów?')"><i class="fas fa-download"></i> Pobierz wszystkie</button>
         </form>
     </div>
     {% endif %}
 
-    <!-- Tabela farb -->
-    <div class="table-responsive">
-        <table class="table table-hover table-bordered align-middle">
-            <thead class="table-light">
+    <div class="stock-sheet-wrap">
+        <table class="table stock-sheet">
+            <thead>
                 <tr>
+                    <th><a href="?sort=polka&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Półka</a></th>
                     <th><a href="?sort=pantone&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Nazwa</a></th>
                     <th><a href="?sort=lub&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> LUB</a></th>
                     <th><a href="?sort=artwork&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Artwork</a></th>
-                    <th><a href="?sort=polka&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Półka</a></th>
-                    <th><a href="?sort=waga&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Waga (kg)</a></th>
+                    <th class="text-end"><a href="?sort=waga&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Waga (kg)</a></th>
                     <th><a href="?sort=data_produkcji&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Data prod.</a></th>
                     <th><a href="?sort=status&dir={{ 'desc' if dir=='asc' else 'asc' }}&search_field={{ search_field }}&search_value={{ search_value }}&filtr_alert={{ filtr_alert }}&status={{ status }}"><i class="fas fa-sort"></i> Status</a></th>
                     <th>Akcje</th>
@@ -159,11 +166,11 @@
             <tbody id="tableBody">
                 {% for f in farby %}
                 <tr data-id="{{ f.id }}" class="{% if f.status == 'zutylizowana' %}utylizowana-row{% elif f.alert == 'przeterminowana' %}table-danger{% elif f.alert == 'uwaga' %}table-warning{% endif %}">
-                    <td>{{ f.pantone }}</td>
+                    <td class="cell-shelf">{{ f.polka }}</td>
+                    <td class="cell-name">{{ f.pantone }}</td>
                     <td>{{ f.lub }}{% if f.extra_lubs %}<br>{% for el in f.extra_lubs %}<span class="badge bg-info text-dark">{{ el }}</span> {% endfor %}{% endif %}</td>
                     <td>{{ f.artwork or '—' }}</td>
-                    <td>{{ f.polka }}</td>
-                    <td class="waga-cell">{{ f.waga }}</td>
+                    <td class="cell-num waga-cell">{{ f.waga }}</td>
                     <td class="data-cell">{% if f.data_produkcji in ['0', 0, None, ''] %}—{% else %}{{ f.data_produkcji }}{% endif %}</td>
                     <td>
                         {% if f.status == 'dostepna' %}
@@ -180,73 +187,75 @@
                         {% endif %}
                     </td>
                     <td class="actions-cell">
+                        <div class="stock-actions-row">
                         {% if assign_lub and f.status != 'zutylizowana' %}
-                        <form method="post" action="/farba/{{ f.id }}/przypisz-lub" class="d-inline mb-1" data-no-ajax>
+                        <form method="post" action="/farba/{{ f.id }}/przypisz-lub" data-no-ajax>
                             <input type="hidden" name="assign_lub" value="{{ assign_lub }}">
                             <input type="hidden" name="plan_id" value="{{ plan_id }}">
                             <input type="hidden" name="assign_machine" value="{{ assign_machine }}">
                             <input type="hidden" name="return_to" value="{{ return_to }}">
                             <button class="btn btn-sm btn-warning fw-semibold" onclick="return confirm('Przypisać farbę {{ f.pantone }} do LUB {{ assign_lub }}?')">
-                                <i class="fas fa-link"></i> Przypisz do LUB
+                                <i class="fas fa-link"></i> Przypisz
                             </button>
                         </form>
                         {% endif %}
                         {% if can_edit %}
-                        <button class="btn btn-sm btn-outline-secondary mb-1"
+                        <button class="btn btn-sm btn-outline-secondary"
                             data-bs-toggle="modal" data-bs-target="#editModal"
                             data-id="{{ f.id }}" data-pantone="{{ f.pantone }}" data-lub="{{ f.lub or '' }}"
                             data-artwork="{{ f.artwork or '' }}"
                             data-polka="{{ f.polka or '' }}" data-waga="{{ f.waga }}" data-data="{{ f.data_produkcji if f.data_produkcji not in ['0', 0] else '' }}">
-                            <i class="fas fa-edit"></i> Edytuj
+                            <i class="fas fa-edit"></i>
                         </button>
                         {% endif %}
                         {% if f.status == 'dostepna' %}
                             {% if f.alert != 'przeterminowana' %}
-                            <form method="post" action="/pobierz" class="d-inline">
+                            <form method="post" action="/pobierz">
                                 <input type="hidden" name="id" value="{{ f.id }}">
                                 <button class="btn btn-sm btn-primary"><i class="fas fa-download"></i> Pobierz</button>
                             </form>
                             {% endif %}
-                            <form method="post" action="/utylizacja" class="d-inline">
+                            <form method="post" action="/utylizacja">
                                 <input type="hidden" name="id" value="{{ f.id }}">
-                                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:140px">
+                                <select name="powod" class="form-select form-select-sm">
                                     <option value="przeterminowana">przeterminowana</option>
                                     <option value="minimalna ilość">minimalna ilość</option>
                                     <option value="mieszanie w kałamarzu">mieszanie w kałamarzu</option>
                                     <option value="błąd koloru">błąd koloru</option>
                                     <option value="inna">inna</option>
                                 </select>
-                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Utylizuj</button>
+                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
                             </form>
                         {% elif f.status == 'w_uzyciu' %}
-                            <form method="post" action="/zwrot" class="d-inline">
+                            <form method="post" action="/zwrot">
                                 <input type="hidden" name="id" value="{{ f.id }}">
-                                <input type="number" step="0.01" name="waga" class="form-control form-control-sm d-inline w-auto" style="width:80px" placeholder="waga" required>
+                                <input type="number" step="0.01" name="waga" class="form-control form-control-sm" style="width:80px" placeholder="waga" required>
                                 <button class="btn btn-sm btn-secondary"><i class="fas fa-undo-alt"></i> Zwrot</button>
                             </form>
-                            <form method="post" action="/utylizacja" class="d-inline">
+                            <form method="post" action="/utylizacja">
                                 <input type="hidden" name="id" value="{{ f.id }}">
-                                <select name="powod" class="form-select form-select-sm d-inline w-auto" style="width:140px">
+                                <select name="powod" class="form-select form-select-sm">
                                     <option value="przeterminowana">przeterminowana</option>
                                     <option value="minimalna ilość">minimalna ilość</option>
                                     <option value="mieszanie w kałamarzu">mieszanie w kałamarzu</option>
                                     <option value="błąd koloru">błąd koloru</option>
                                     <option value="inna">inna</option>
                                 </select>
-                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Utylizuj</button>
+                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
                             </form>
                         {% elif f.status == 'zutylizowana' %}
-                            <form method="post" action="/przywroc" class="d-inline">
+                            <form method="post" action="/przywroc">
                                 <input type="hidden" name="id" value="{{ f.id }}">
-                                <input type="date" name="nowa_data" class="form-control form-control-sm d-inline w-auto" style="width:130px" required>
-                                <input type="number" step="0.01" name="nowa_waga" class="form-control form-control-sm d-inline w-auto" style="width:80px" placeholder="waga" required>
+                                <input type="date" name="nowa_data" class="form-control form-control-sm" style="width:130px" required>
+                                <input type="number" step="0.01" name="nowa_waga" class="form-control form-control-sm" style="width:80px" placeholder="waga" required>
                                 <button class="btn btn-sm btn-success"><i class="fas fa-recycle"></i> Przywróć</button>
                             </form>
                         {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7" class="text-center">Brak farb spełniających kryteria</td></tr>
+                <tr><td colspan="8" class="text-center text-muted py-4">Brak farb spełniających kryteria</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -276,7 +285,7 @@
     function attachFormHandlers(row) {
         const forms = row.querySelectorAll('form');
         forms.forEach(form => {
-            if ('noAjax' in form.dataset) return; // pomijamy formularze full-page
+            if ('noAjax' in form.dataset) return;
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const action = this.action;
@@ -321,7 +330,6 @@
             .catch(err => console.error('Błąd pobierania wiersza:', err));
     }
 
-    // Obsługa formularza dodawania (AJAX)
     const addForm = document.getElementById('addForm');
     if (addForm) {
         addForm.addEventListener('submit', function(e) {
@@ -336,7 +344,7 @@
             .then(data => {
                 if (data.success) {
                     showToast(data.message, 'success');
-                    location.reload(); // proste przeładowanie po dodaniu nowej farby
+                    location.reload();
                 } else {
                     showToast('❌ Błąd dodawania farby', 'error');
                 }
@@ -344,21 +352,10 @@
         });
     }
 
-    // Obsługa formularza zbiorczego pobierania (przeładowanie strony, bo to akcja zbiorcza)
-    const pobierzWszystkieForm = document.getElementById('pobierzWszystkieForm');
-    if (pobierzWszystkieForm) {
-        pobierzWszystkieForm.addEventListener('submit', function(e) {
-            // Pozostawiamy domyślne zachowanie – przeładowanie strony, aby pokazać nowy stan.
-            // Można też dodać potwierdzenie.
-        });
-    }
-
-    // Podepnij eventy dla istniejących wierszy
     document.querySelectorAll('#tableBody tr[data-id]').forEach(row => {
         attachFormHandlers(row);
     });
 
-    // Modal edycji farby
     const editModal = document.getElementById('editModal');
     if (editModal) {
         editModal.addEventListener('show.bs.modal', function(event) {
@@ -375,7 +372,6 @@
         });
     }
 
-    // Obsługa sukcesu po przeładowaniu
     const urlParams = new URLSearchParams(window.location.search);
     const successParam = urlParams.get('success');
     if (successParam === 'edytowano') showToast('✅ Dane farby zostały zaktualizowane', 'success');
@@ -389,7 +385,6 @@
 {% include '_notification_poll.html' %}
 
 {% if can_edit %}
-<!-- Modal edycji farby -->
 <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -408,6 +403,10 @@
           <hr>
           {% endif %}
           <div class="mb-3">
+            <label class="form-label">Półka</label>
+            <input type="text" id="editPolka" name="polka" class="form-control">
+          </div>
+          <div class="mb-3">
             <label class="form-label">Nazwa / Pantone</label>
             <input type="text" id="editPantone" name="pantone" class="form-control" required>
           </div>
@@ -418,10 +417,6 @@
           <div class="mb-3">
             <label class="form-label">Artwork</label>
             <input type="text" id="editArtwork" name="artwork" class="form-control">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Półka</label>
-            <input type="text" id="editPolka" name="polka" class="form-control">
           </div>
           <div class="mb-3">
             <label class="form-label">Waga (kg)</label>
