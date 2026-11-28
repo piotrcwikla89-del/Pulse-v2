@@ -451,6 +451,27 @@ def resolve_plan_id_for_job(cur, machine: str, job_number: str):
     return row["id"] if row else None
 
 
+def normalize_lub_key(value) -> str:
+    """Kanoniczny klucz LUB: LUB4475 / 4475 / 'LUB 4475' → '4475'."""
+    if value is None:
+        return ""
+    text = str(value).strip().upper().replace(" ", "").replace("-", "")
+    if text.startswith("LUB"):
+        text = text[3:]
+    return text
+
+
+def lub_match_variants(value) -> list[str]:
+    """Warianty zapisu LUB do zapytań SQL (dokładne dopasowanie + normalizacja)."""
+    raw = str(value or "").strip()
+    key = normalize_lub_key(raw)
+    variants: list[str] = []
+    for item in (raw, key, f"LUB{key}", f"LUB {key}", f"lub{key}", f"Lub{key}"):
+        if item and item not in variants:
+            variants.append(item)
+    return variants
+
+
 def enrich_plans_with_lub_materials(cur, plan_rows):
     """Do każdego planu dokleja listy farb i polimerów wg lub_number (dla widoku operator/prepress)."""
     if not plan_rows:
@@ -459,17 +480,23 @@ def enrich_plans_with_lub_materials(cur, plan_rows):
     farby_by_lub = defaultdict(list)
     pol_by_lub = defaultdict(list)
     if lubs:
-        placeholders = ",".join("?" * len(lubs))
-        t = tuple(lubs)
-        # 1. Farby z polem lub= (klasyczne przypisanie)
-        cur.execute("SELECT * FROM farby WHERE lub IN (%s)" % placeholders, t)
+        variants: list[str] = []
+        for lub in lubs:
+            for v in lub_match_variants(lub):
+                if v not in variants:
+                    variants.append(v)
+        placeholders = ",".join("?" * len(variants))
+        t = tuple(variants)
         seen_per_lub: dict = defaultdict(set)
+        # 1. Farby z polem lub= (klasyczne przypisanie) — także w_uzyciu / dostępne
+        cur.execute("SELECT * FROM farby WHERE lub IN (%s)" % placeholders, t)
         for f in cur.fetchall():
             fd = dict(f)
             fd["mag_alert"] = alert_daty(f["data_produkcji"]) if f["data_produkcji"] else "ok"
-            if f["lub"]:
-                farby_by_lub[f["lub"]].append(fd)
-                seen_per_lub[f["lub"]].add(f["id"])
+            key = normalize_lub_key(f["lub"])
+            if key:
+                farby_by_lub[key].append(fd)
+                seen_per_lub[key].add(f["id"])
         # 2. Farby z tabeli farba_lub_assignments (ręczne / wielokrotne)
         try:
             cur.execute(
@@ -481,24 +508,27 @@ def enrich_plans_with_lub_materials(cur, plan_rows):
             for f in cur.fetchall():
                 fd = dict(f)
                 assigned_lub = fd.pop("assigned_lub", None)
-                if not assigned_lub:
+                key = normalize_lub_key(assigned_lub)
+                if not key:
                     continue
                 fd["mag_alert"] = alert_daty(fd.get("data_produkcji")) if fd.get("data_produkcji") else "ok"
-                if fd["id"] not in seen_per_lub.get(assigned_lub, set()):
-                    farby_by_lub[assigned_lub].append(fd)
-                    seen_per_lub[assigned_lub].add(fd["id"])
+                if fd["id"] not in seen_per_lub.get(key, set()):
+                    farby_by_lub[key].append(fd)
+                    seen_per_lub[key].add(fd["id"])
         except Exception:
             pass  # tabela może nie istnieć na starszych bazach
         # 3. Polimery
         cur.execute("SELECT * FROM polymers WHERE lub IN (%s)" % placeholders, t)
         for po in cur.fetchall():
-            pol_by_lub[po["lub"]].append(dict(po))
+            key = normalize_lub_key(po["lub"])
+            if key:
+                pol_by_lub[key].append(dict(po))
     out = []
     for p in plan_rows:
         d = dict(p)
-        lub = d.get("lub_number")
-        d["farby"] = farby_by_lub.get(lub, []) if lub else []
-        d["polimery"] = pol_by_lub.get(lub, []) if lub else []
+        lub_key = normalize_lub_key(d.get("lub_number"))
+        d["farby"] = farby_by_lub.get(lub_key, []) if lub_key else []
+        d["polimery"] = pol_by_lub.get(lub_key, []) if lub_key else []
         st = d.get("assortment_prep_status")
         if not st:
             d["assortment_prep_status"] = "pending"
@@ -512,9 +542,13 @@ def enrich_plans_with_lub_materials(cur, plan_rows):
 
 def get_lub_farby(cur, lub_number: str) -> list:
     """Zwraca wszystkie farby powiązane z danym numerem LUB (bezpośrednio i przez assignment)."""
+    variants = lub_match_variants(lub_number)
+    if not variants:
+        return []
     result = []
     seen_ids: set = set()
-    cur.execute("SELECT * FROM farby WHERE lub=?", (lub_number,))
+    placeholders = ",".join("?" * len(variants))
+    cur.execute(f"SELECT * FROM farby WHERE lub IN ({placeholders})", tuple(variants))
     for f in cur.fetchall():
         fd = dict(f)
         fd["mag_alert"] = alert_daty(fd.get("data_produkcji")) if fd.get("data_produkcji") else "ok"
@@ -522,8 +556,9 @@ def get_lub_farby(cur, lub_number: str) -> list:
         seen_ids.add(fd["id"])
     try:
         cur.execute(
-            "SELECT f.* FROM farby f JOIN farba_lub_assignments fla ON f.id=fla.farba_id WHERE fla.lub_number=?",
-            (lub_number,),
+            f"SELECT f.* FROM farby f JOIN farba_lub_assignments fla ON f.id=fla.farba_id "
+            f"WHERE fla.lub_number IN ({placeholders})",
+            tuple(variants),
         )
         for f in cur.fetchall():
             if f["id"] not in seen_ids:
@@ -534,3 +569,13 @@ def get_lub_farby(cur, lub_number: str) -> list:
     except Exception:
         pass
     return result
+
+
+def get_lub_polimery(cur, lub_number: str) -> list:
+    """Polimery/matryce dla LUB — z normalizacją zapisu numeru."""
+    variants = lub_match_variants(lub_number)
+    if not variants:
+        return []
+    placeholders = ",".join("?" * len(variants))
+    cur.execute(f"SELECT * FROM polymers WHERE lub IN ({placeholders})", tuple(variants))
+    return [dict(p) for p in cur.fetchall()]

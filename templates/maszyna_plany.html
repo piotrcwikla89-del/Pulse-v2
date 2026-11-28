@@ -247,21 +247,35 @@
                                                             <td>{{ f.pantone }}</td>
                                                             <td>{{ f.polka }}</td>
                                                             <td>{{ f.waga }}</td>
-                                                            <td>{{ f.status }}</td>
-                                                            <td><small>{{ f.data_produkcji }}{% if f.mag_alert == 'przeterminowana' %} <strong>(przeterm.)</strong>{% elif f.mag_alert == 'uwaga' %} <strong>(uwaga)</strong>{% endif %}</small></td>
+                                                            <td>
+                                                                {% if f.status == 'dostepna' %}
+                                                                <span class="badge bg-success">Dostępna</span>
+                                                                {% elif f.status == 'w_uzyciu' %}
+                                                                <span class="badge bg-primary">W użyciu</span>
+                                                                {% elif f.status == 'zutylizowana' %}
+                                                                <span class="badge bg-secondary">Zutylizowana</span>
+                                                                {% else %}
+                                                                {{ f.status }}
+                                                                {% endif %}
+                                                            </td>
+                                                            <td><small>{% if f.data_produkcji in ['0', 0, None, ''] %}—{% else %}{{ f.data_produkcji }}{% endif %}{% if f.mag_alert == 'przeterminowana' %} <strong>(przeterm.)</strong>{% elif f.mag_alert == 'uwaga' %} <strong>(uwaga)</strong>{% endif %}</small></td>
                                                         </tr>
                                                         {% endfor %}
                                                     </tbody>
                                                 </table>
                                             </div>
                                             {% else %}
-                                            <p class="text-muted small mb-0">Brak rekordów farb dla tego LUB w magazynie.</p>
+                                            <p class="text-muted small mb-0">
+                                                Brak farb powiązanych z {{ p.lub_number|lub }}
+                                                (szukane też jako sam numer bez prefiksu LUB).
+                                                Farby „w użyciu” też powinny tu wejść — jeśli ich nie widać, przypisz ręcznie poniżej.
+                                            </p>
                                             {% endif %}
                                             {% if user.role in ['operator_mieszalni', 'manager', 'admin'] %}
                                             <div class="mt-2">
                                                 <a href="/magazyn?assign_lub={{ p.lub_number }}&plan_id={{ p.id }}&assign_machine={{ machine }}&return_to=/maszyna/{{ machine|lower }}/plany"
                                                    class="btn btn-sm btn-outline-warning">
-                                                    <i class="fas fa-link"></i> Przypisz ręcznie farbę do LUB {{ p.lub_number }}
+                                                    <i class="fas fa-link"></i> Przypisz ręcznie farbę do {{ p.lub_number|lub }}
                                                 </a>
                                             </div>
                                             {% endif %}

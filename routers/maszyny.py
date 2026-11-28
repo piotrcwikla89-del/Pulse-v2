@@ -18,6 +18,7 @@ from helpers import (
     find_pending_machine_handover,
     find_pending_role_shift_handover,
     get_lub_farby,
+    get_lub_polimery,
     has_pending_role_handover,
     insert_notification_if_enabled,
     log_domain_event,
@@ -819,8 +820,7 @@ def potwierdz_asortyment(
             return RedirectResponse(
                 f"/maszyna/{machine.lower()}/plany?error=brak_lub&plan_id={plan_id}", status_code=303
             )
-        cur.execute("SELECT * FROM polymers WHERE lub=?", (lub,))
-        polimery = [dict(p) for p in cur.fetchall()]
+        polimery = get_lub_polimery(cur, lub)
         if not polimery:
             return RedirectResponse(
                 f"/maszyna/{machine.lower()}/plany?error=brak_polimerów&plan_id={plan_id}", status_code=303
@@ -924,10 +924,8 @@ def maszyna_job(
     farby = []
     polimery = []
     if user["role"] in ["operator_mieszalni", "prepress"] and plan["lub_number"]:
-        cur.execute("SELECT * FROM farby WHERE lub=?", (plan["lub_number"],))
-        farby = cur.fetchall()
-        cur.execute("SELECT * FROM polymers WHERE lub=?", (plan["lub_number"],))
-        polimery = cur.fetchall()
+        farby = get_lub_farby(cur, plan["lub_number"])
+        polimery = get_lub_polimery(cur, plan["lub_number"])
     cur.execute(
         "SELECT code, label FROM problem_categories WHERE is_active=1 ORDER BY sort_order, label"
     )
