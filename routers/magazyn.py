@@ -427,7 +427,7 @@ def magazyn_dashboard_view(request: Request, user=Depends(require_auth), conn=De
 
     stats = refresh_magazyn_daily_report(cur)
     conn.commit()
-    history = list_recent_daily_reports(cur, limit=14)
+    history = [dict(h) for h in list_recent_daily_reports(cur, limit=14)]
     cur.execute("""
         SELECT farba, COUNT(*) as ile
         FROM operacje
@@ -436,13 +436,56 @@ def magazyn_dashboard_view(request: Request, user=Depends(require_auth), conn=De
         ORDER BY ile DESC
         LIMIT 10
     """)
-    top_farby = cur.fetchall()
+    top_farby = [dict(r) for r in cur.fetchall()]
+    akt = stats.get("aktywnosc") or {}
+    charts = {
+        "status": [
+            stats.get("dostepna", 0),
+            stats.get("w_uzyciu", 0),
+            stats.get("zutylizowana", 0),
+        ],
+        "activity": {
+            "labels": ["Dziś", "7 dni", "30 dni"],
+            "wydania": [
+                (akt.get("wydania") or {}).get("dzis", 0),
+                (akt.get("wydania") or {}).get("tydzien", 0),
+                (akt.get("wydania") or {}).get("dni30", 0),
+            ],
+            "zwroty": [
+                (akt.get("zwroty") or {}).get("dzis", 0),
+                (akt.get("zwroty") or {}).get("tydzien", 0),
+                (akt.get("zwroty") or {}).get("dni30", 0),
+            ],
+            "utyl": [
+                (akt.get("utylizacje") or {}).get("dzis", 0),
+                (akt.get("utylizacje") or {}).get("tydzien", 0),
+                (akt.get("utylizacje") or {}).get("dni30", 0),
+            ],
+        },
+        "shelves": {
+            "labels": [s.get("polka") for s in (stats.get("polki") or [])],
+            "fill": [s.get("fill_pct", 0) for s in (stats.get("polki") or [])],
+            "used": [s.get("used", 0) for s in (stats.get("polki") or [])],
+            "max": [s.get("max", 0) for s in (stats.get("polki") or [])],
+        },
+        "scrap": {
+            "labels": [p.get("powod") for p in (stats.get("przyczyny_30d") or [])],
+            "counts": [p.get("n", 0) for p in (stats.get("przyczyny_30d") or [])],
+            "masa": [p.get("masa", 0) for p in (stats.get("przyczyny_30d") or [])],
+        },
+        "history": history,
+        "top": {
+            "labels": [t.get("farba") for t in top_farby],
+            "counts": [t.get("ile", 0) for t in top_farby],
+        },
+    }
     return render_template(
         "magazyn_dashboard.html",
         {
             "stats": stats,
             "history": history,
             "top_farby": top_farby,
+            "charts": charts,
             "user": {"username": user["username"], "role": user["role"]},
         },
     )
