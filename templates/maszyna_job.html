@@ -100,7 +100,7 @@
                 <p class="mb-0">Artwork {{ plan.artwork_number or '—' }} · Laminat {{ plan.laminate or '—' }}</p>
             </div>
             <div class="summary-card" style="min-width: 10rem;">
-                <small>Postęp (OK / plan szt.)</small>
+                <small>Postęp (rolki / plan)</small>
                 <strong>{{ production_actual.progress_pct }}%</strong>
             </div>
         </div>
@@ -113,17 +113,18 @@
                 <div class="meta">Metry laminatu (T) · ilość sztuk (W)</div>
             </div>
             <div class="prod-box actual">
-                <div class="eyebrow">Rzeczywista produkcja</div>
-                <div class="big">{{ production_actual.ok }} szt. OK</div>
+                <div class="eyebrow">Wykonanie z kontroli zadruku</div>
+                <div class="big">{{ production_actual.meters }} m</div>
                 <div class="sub">
-                    Razem {{ production_actual.qty }} szt.
+                    {{ production_actual.qty }} szt.
+                    · OK {{ production_actual.ok }}
                     · NOK {{ production_actual.nok }}
                 </div>
                 <div class="meta">
-                    {% if production_actual.report_count %}
-                    Z {{ production_actual.report_count }} raport(ów) produkcji
+                    {% if production_actual.roll_count %}
+                    Z {{ production_actual.roll_count }} raport(ów) kontroli (rolka po rolce)
                     {% else %}
-                    Brak raportów produkcji dla tego zlecenia
+                    Brak raportów kontroli zadruku — dodaj pierwszą rolkę
                     {% endif %}
                 </div>
                 <div class="prod-progress" title="{{ production_actual.progress_pct }}%">
@@ -338,14 +339,25 @@
                                 <div class="timeline-item">
                                     <span class="dot"></span>
                                     <div>
-                                        <strong>{{ report.created_at|localdatetime }} · {{ report.status }}</strong>
-                                        <div class="small">{{ report.notes or 'Brak uwag' }}</div>
+                                        <strong>
+                                            {% if report.roll_no %}Rolka {{ report.roll_no }} · {% endif %}
+                                            {{ report.created_at|localdatetime }} · {{ report.status }}
+                                        </strong>
+                                        <div class="small">
+                                            {{ report.roll_meters or 0 }} m · {{ report.roll_pieces or 0 }} szt.
+                                            · wymiary {{ report.dimensions_match or '—' }}
+                                            · kolory {{ report.colors_match or '—' }}
+                                            · kody {{ report.barcode_grade or '—' }}
+                                        </div>
+                                        {% if report.notes %}
+                                        <div class="small text-muted">{{ report.notes }}</div>
+                                        {% endif %}
                                     </div>
                                 </div>
                                 {% endfor %}
                             </div>
                             {% else %}
-                            <div class="surface-note">Brak wpisów kontroli zadruku. Pierwszy raport jakości pojawi się po dodaniu wpisu z aktywnego zlecenia.</div>
+                            <div class="surface-note">Brak wpisów kontroli zadruku. Raport jest wymagany co rolkę — każda publikacja podnosi postęp zlecenia.</div>
                             {% endif %}
                         </div>
                     </div>
@@ -546,27 +558,62 @@
               <option value="noc">Noc</option>
             </select>
           </div>
-          <div class="mb-3" id="statusField">
-            <label class="form-label">Status kontroli</label>
-            <select class="form-select" name="status" id="statusSelect">
-              <option value="OK">OK</option>
-              <option value="NOT_OK">NOK</option>
-            </select>
+          <div id="printControlFields">
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label">Metry na rolce</label>
+                <input type="number" class="form-control" name="roll_meters" id="rollMetersInput" min="0" step="0.01" value="0" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Sztuki na rolce</label>
+                <input type="number" class="form-control" name="roll_pieces" id="rollPiecesInput" min="0" step="1" value="0" required>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Czy wymiary zgadzają się z PDF-em?</label>
+              <select class="form-select" name="dimensions_match" id="dimensionsMatchSelect" required>
+                <option value="">— wybierz —</option>
+                <option value="tak">Tak</option>
+                <option value="nie">Nie</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Czy kolory były zgodne z wymaganiami klienta?</label>
+              <select class="form-select" name="colors_match" id="colorsMatchSelect" required>
+                <option value="">— wybierz —</option>
+                <option value="tak">Tak</option>
+                <option value="nie">Nie</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Jaka była czytelność kodów kreskowych?</label>
+              <select class="form-select" name="barcode_grade" id="barcodeGradeSelect" required>
+                <option value="">— wybierz —</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+                <option value="D">D</option>
+                <option value="E">E</option>
+              </select>
+              <div class="form-text">Status OK wymaga: wymiary = tak, kolory = tak, kody A–C.</div>
+            </div>
           </div>
           <div class="mb-3" id="productionFields" style="display:none;">
             <label class="form-label">Ilość (szt.)</label>
-            <input type="number" class="form-control" name="quantity" min="0" value="0">
+            <input type="number" class="form-control" name="quantity" id="finalQuantityInput" min="0" value="{{ production_actual.qty or 0 }}">
+            <div class="form-text">Domyślnie suma sztuk z kontroli zadruku ({{ production_actual.roll_count }} rolek).</div>
           </div>
           <div class="mb-3" id="productionQualityFields" style="display:none;">
             <label class="form-label">OK / NOK</label>
             <div class="row">
               <div class="col">
-                <input type="number" class="form-control" name="ok_quantity" min="0" value="0" placeholder="OK">
+                <input type="number" class="form-control" name="ok_quantity" id="finalOkInput" min="0" value="{{ production_actual.ok or 0 }}" placeholder="OK">
               </div>
               <div class="col">
-                <input type="number" class="form-control" name="nok_quantity" min="0" value="0" placeholder="NOK">
+                <input type="number" class="form-control" name="nok_quantity" id="finalNokInput" min="0" value="{{ production_actual.nok or 0 }}" placeholder="NOK">
               </div>
             </div>
+            <div class="form-text">Wyliczone z rolek: {{ production_actual.meters }} m łącznie.</div>
           </div>
           <div class="mb-3" id="productionIssueFields" style="display:none;">
             <label class="form-label">Ogólna przyczyna problemów</label>
@@ -813,25 +860,43 @@
 
 <script>
   function openReportModal(type) {
-    const title = type === 'print_control' ? 'Raport kontroli zadruku' : 'Finalny raport produkcji';
+    const title = type === 'print_control' ? 'Raport kontroli zadruku (rolka)' : 'Finalny raport produkcji';
+    const isPrint = type === 'print_control';
     document.getElementById('reportModalLabel').innerText = title;
     document.getElementById('reportType').value = type;
     document.getElementById('reportTypeLabel').value = title;
-    document.getElementById('productionFields').style.display = type === 'production' ? 'block' : 'none';
-    document.getElementById('productionQualityFields').style.display = type === 'production' ? 'block' : 'none';
-    document.getElementById('productionIssueFields').style.display = type === 'production' ? 'block' : 'none';
-    document.getElementById('productionIssueNoteField').style.display = type === 'production' ? 'block' : 'none';
-    document.getElementById('statusField').style.display = type === 'print_control' ? 'block' : 'none';
-    document.getElementById('reportSubmitButton').innerText = type === 'print_control' ? 'Zapisz kontrolę' : 'Zapisz raport i zakończ zlecenie';
-    document.getElementById('statusSelect').value = 'OK';
-    if (type !== 'production') {
+    document.getElementById('productionFields').style.display = isPrint ? 'none' : 'block';
+    document.getElementById('productionQualityFields').style.display = isPrint ? 'none' : 'block';
+    document.getElementById('productionIssueFields').style.display = isPrint ? 'none' : 'block';
+    document.getElementById('productionIssueNoteField').style.display = isPrint ? 'none' : 'block';
+    document.getElementById('printControlFields').style.display = isPrint ? 'block' : 'none';
+    document.getElementById('reportSubmitButton').innerText = isPrint ? 'Zapisz kontrolę rolki' : 'Zapisz raport i zakończ zlecenie';
+
+    const rollMeters = document.getElementById('rollMetersInput');
+    const rollPieces = document.getElementById('rollPiecesInput');
+    const dims = document.getElementById('dimensionsMatchSelect');
+    const colors = document.getElementById('colorsMatchSelect');
+    const grade = document.getElementById('barcodeGradeSelect');
+    [rollMeters, rollPieces, dims, colors, grade].forEach(function (el) {
+      if (!el) return;
+      el.required = isPrint;
+      el.disabled = !isPrint;
+    });
+
+    if (isPrint) {
+      rollMeters.value = 0;
+      rollPieces.value = 0;
+      dims.value = '';
+      colors.value = '';
+      grade.value = '';
+    } else {
       document.querySelectorAll('.production-issue-checkbox').forEach(function (checkbox) {
         checkbox.checked = false;
       });
       document.querySelector('input[name="problem_short_note"]').value = '';
-      document.querySelector('input[name="quantity"]').value = 0;
-      document.querySelector('input[name="ok_quantity"]').value = 0;
-      document.querySelector('input[name="nok_quantity"]').value = 0;
+      document.getElementById('finalQuantityInput').value = {{ production_actual.qty or 0 }};
+      document.getElementById('finalOkInput').value = {{ production_actual.ok or 0 }};
+      document.getElementById('finalNokInput').value = {{ production_actual.nok or 0 }};
     }
     const now = new Date();
     const localISO = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0,16);

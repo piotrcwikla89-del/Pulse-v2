@@ -33,7 +33,7 @@
     <div class="table-responsive card shadow-sm">
         <table class="table table-sm table-hover mb-0">
             <thead class="table-light">
-                <tr><th>Czas</th><th>Maszyna</th><th>Zlecenie</th><th>Status</th><th>Użytkownik</th><th>Uwagi</th></tr>
+                <tr><th>Czas</th><th>Maszyna</th><th>Zlecenie</th><th>Rolka</th><th>m / szt.</th><th>Ankieta</th><th>Status</th><th>Użytkownik</th><th>Uwagi</th></tr>
             </thead>
             <tbody>
                 {% for r in print_reports %}
@@ -41,12 +41,19 @@
                     <td><small>{{ r.created_at|localdatetime }}</small></td>
                     <td>{{ r.machine }}</td>
                     <td>{{ r.job_number }}{% if r.plan_id %} <small class="text-muted">#{{ r.plan_id }}</small>{% endif %}</td>
+                    <td>{{ r.roll_no or '—' }}</td>
+                    <td>{{ r.roll_meters or 0 }} / {{ r.roll_pieces or 0 }}</td>
+                    <td class="small">
+                        wymiary {{ r.dimensions_match or '—' }}
+                        · kolory {{ r.colors_match or '—' }}
+                        · kody {{ r.barcode_grade or '—' }}
+                    </td>
                     <td><span class="badge {% if r.status == 'OK' %}bg-success{% else %}bg-danger{% endif %}">{{ r.status }}</span></td>
                     <td>{{ r.created_by }}</td>
                     <td><small>{{ r.notes or '—' }}</small></td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-muted text-center py-3">Brak wpisów na ten dzień.</td></tr>
+                <tr><td colspan="9" class="text-muted text-center py-3">Brak wpisów na ten dzień.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

@@ -23,11 +23,15 @@ from helpers import (
     insert_notification_if_enabled,
     log_domain_event,
     log_production_operation,
+    normalize_barcode_grade,
     normalize_shift_label,
+    normalize_yes_no,
     plan_production_targets,
+    print_control_status_from_answers,
     render_template,
     resolve_active_shift,
     resolve_plan_id_for_job,
+    sum_print_control_rolls,
 )
 from time_utils import local_date_str, local_day_bounds_utc, local_time_str, local_today
 
@@ -931,7 +935,7 @@ def maszyna_job(
     )
     problem_categories = cur.fetchall()
     cur.execute(
-        "SELECT * FROM print_control_reports WHERE plan_id=? ORDER BY created_at DESC, id DESC LIMIT 12",
+        "SELECT * FROM print_control_reports WHERE plan_id=? ORDER BY created_at DESC, id DESC LIMIT 40",
         (plan_id,),
     )
     print_reports = [dict(row) for row in cur.fetchall()]
@@ -940,29 +944,30 @@ def maszyna_job(
         (plan_id,),
     )
     production_report = cur.fetchone()
-    cur.execute(
-        """
-        SELECT COALESCE(SUM(quantity), 0) AS qty,
-               COALESCE(SUM(ok_quantity), 0) AS ok_qty,
-               COALESCE(SUM(nok_quantity), 0) AS nok_qty,
-               COUNT(*) AS report_count
-        FROM production_reports
-        WHERE plan_id=?
-        """,
-        (plan_id,),
-    )
-    actual_row = cur.fetchone()
+    roll_totals = sum_print_control_rolls(cur, plan_id)
     planned = plan_production_targets(plan)
-    actual_qty = int(actual_row["qty"] or 0)
-    actual_ok = int(actual_row["ok_qty"] or 0)
-    actual_nok = int(actual_row["nok_qty"] or 0)
     planned_pieces = float(planned["pieces"] or 0)
-    progress_pct = round(actual_ok * 100 / planned_pieces, 1) if planned_pieces else 0.0
+    planned_meters = float(planned["meters"] or 0)
+    # Postęp z kontroli zadruku (rolka po rolce); po finalizacji uzupełnia raport produkcji.
+    actual_pieces = int(roll_totals["pieces"] or 0)
+    actual_ok = int(roll_totals["ok_pieces"] or 0)
+    actual_nok = int(roll_totals["nok_pieces"] or 0)
+    actual_meters = float(roll_totals["meters"] or 0)
+    if planned_pieces:
+        progress_pct = round(actual_pieces * 100 / planned_pieces, 1)
+    elif planned_meters:
+        progress_pct = round(actual_meters * 100 / planned_meters, 1)
+    else:
+        progress_pct = 0.0
     production_actual = {
-        "qty": actual_qty,
+        "qty": actual_pieces,
         "ok": actual_ok,
         "nok": actual_nok,
-        "report_count": int(actual_row["report_count"] or 0),
+        "meters": actual_meters,
+        "ok_meters": float(roll_totals["ok_meters"] or 0),
+        "nok_meters": float(roll_totals["nok_meters"] or 0),
+        "roll_count": int(roll_totals["roll_count"] or 0),
+        "report_count": int(roll_totals["roll_count"] or 0),
         "progress_pct": progress_pct,
     }
     prep_ready = plan["farby_prep_status"] == "ready" and plan["polimery_prep_status"] == "ready"
@@ -1312,13 +1317,18 @@ def submit_report(
     report_date: str = Form(...),
     shift: str = Form(...),
     job_number: str = Form(...),
-    status: str = Form(...),
+    status: str = Form(""),
     notes: str = Form(""),
     problem_categories: list[str] = Form([]),
     problem_short_note: str = Form(""),
     ok_quantity: int = Form(0),
     nok_quantity: int = Form(0),
     quantity: int = Form(0),
+    roll_meters: float = Form(0),
+    roll_pieces: int = Form(0),
+    dimensions_match: str = Form(""),
+    colors_match: str = Form(""),
+    barcode_grade: str = Form(""),
     user=Depends(require_auth),
     conn=Depends(get_db),
 ):
@@ -1339,15 +1349,53 @@ def submit_report(
                 f"/maszyna/{machine.lower()}/job/{plan_id}?status=warning&message=Raport+kontroli+zadruku+jest+dostępny+dopiero+po+rozpoczęciu+zlecenia",
                 status_code=303,
             )
+        dims = normalize_yes_no(dimensions_match)
+        colors = normalize_yes_no(colors_match)
+        grade = normalize_barcode_grade(barcode_grade)
+        if dims not in ("tak", "nie") or colors not in ("tak", "nie") or not grade:
+            return RedirectResponse(
+                f"/maszyna/{machine.lower()}/job/{plan_id}?status=warning&message=Uzupełnij+odpowiedzi+kontroli:+wymiary,+kolory+oraz+czytelność+kodów+(A–E)",
+                status_code=303,
+            )
+        if roll_meters < 0 or roll_pieces < 0:
+            return RedirectResponse(
+                f"/maszyna/{machine.lower()}/job/{plan_id}?status=warning&message=Metry+i+sztuki+na+rolce+nie+mogą+być+ujemne",
+                status_code=303,
+            )
+        if roll_meters <= 0 and roll_pieces <= 0:
+            return RedirectResponse(
+                f"/maszyna/{machine.lower()}/job/{plan_id}?status=warning&message=Podaj+metry+lub+sztuki+dla+tej+rolki",
+                status_code=303,
+            )
+        status_val = print_control_status_from_answers(dims, colors, grade)
         cur.execute(
-            "INSERT INTO print_control_reports (machine, date, time, job_number, status, notes, created_by, plan_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (machine.upper(), dpart, tpart, job_number, status, notes, user["username"], plan_id),
+            "SELECT COALESCE(MAX(roll_no), 0) FROM print_control_reports WHERE plan_id=?",
+            (plan_id,),
         )
-        log_production_operation(cur, "raport_zadruku", f"Raport kontroli zadruku: {job_number} [{status}]", machine.upper(), plan_id, user["username"])
+        max_roll = cur.fetchone()
+        next_roll = int((max_roll[0] if max_roll else 0) or 0) + 1
+        cur.execute(
+            """
+            INSERT INTO print_control_reports (
+                machine, date, time, job_number, status, notes, created_by, plan_id,
+                roll_meters, roll_pieces, dimensions_match, colors_match, barcode_grade, roll_no
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                machine.upper(), dpart, tpart, job_number, status_val, notes, user["username"], plan_id,
+                float(roll_meters), int(roll_pieces), dims, colors, grade, next_roll,
+            ),
+        )
+        log_production_operation(
+            cur, "raport_zadruku",
+            f"Kontrola zadruku rolka {next_roll}: {job_number} [{status_val}] {roll_meters}m / {roll_pieces} szt.",
+            machine.upper(), plan_id, user["username"],
+        )
         log_domain_event(cur, "RAPORT_ZADRUKU_ZAPISANY", user["username"], machine.upper(), plan_id, lub)
         insert_notification_if_enabled(
             cur, "RAPORT_ZADRUKU_ZAPISANY", machine.upper(), plan_id,
-            f"Raport kontroli zadruku: {job_number} na {machine.upper()} — {status}", "manager", user["username"],
+            f"Kontrola zadruku (rolka {next_roll}): {job_number} na {machine.upper()} — {status_val}, {roll_meters}m / {roll_pieces} szt.",
+            "manager", user["username"],
         )
     else:
         if plan_row["status"] != "in_progress":
@@ -1355,6 +1403,23 @@ def submit_report(
                 f"/maszyna/{machine.lower()}/job/{plan_id}?status=warning&message=Raport+produkcji+możesz+wypełnić+tylko+podczas+finalizacji+aktywnego+zlecenia",
                 status_code=303,
             )
+        roll_totals = sum_print_control_rolls(cur, plan_id)
+        # Jeśli operator nie nadpisał ilości — bierz sumę z kontroli rolka-po-rolce.
+        if quantity <= 0 and (roll_totals["pieces"] or 0) > 0:
+            quantity = int(roll_totals["pieces"])
+        if ok_quantity <= 0 and nok_quantity <= 0 and (roll_totals["pieces"] or 0) > 0:
+            ok_quantity = int(roll_totals["ok_pieces"] or 0)
+            nok_quantity = int(roll_totals["nok_pieces"] or 0)
+        meters_note = ""
+        if (roll_totals["meters"] or 0) > 0:
+            meters_note = (
+                f"Suma z kontroli zadruku: {roll_totals['meters']} m / {roll_totals['pieces']} szt. "
+                f"({roll_totals['roll_count']} rolek; OK {roll_totals['ok_pieces']} / NOK {roll_totals['nok_pieces']})."
+            )
+            if notes and meters_note not in notes:
+                notes = f"{notes.strip()}\n{meters_note}".strip()
+            elif not notes:
+                notes = meters_note
         cur.execute(
             "INSERT INTO production_reports (machine, date, shift, job_number, start_time, end_time, quantity, ok_quantity, nok_quantity, notes, created_by, plan_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (machine.upper(), dpart, shift_norm, job_number, tpart, tpart, quantity, ok_quantity, nok_quantity, notes, user["username"], plan_id),
@@ -1429,7 +1494,14 @@ def export_plany_csv(machine: str, user=Depends(require_auth), conn=Depends(get_
 
 
 @router.get("/maszyna/{machine}/raport-zadruku")
-def maszyna_raport_zadruku(machine: str, request: Request, user=Depends(require_auth), conn=Depends(get_db)):
+def maszyna_raport_zadruku(
+    machine: str,
+    request: Request,
+    user=Depends(require_auth),
+    conn=Depends(get_db),
+    success: str = Query(""),
+    error: str = Query(""),
+):
     cur = conn.cursor()
     start_utc, end_utc = local_day_bounds_utc()
     cur.execute(
@@ -1441,6 +1513,8 @@ def maszyna_raport_zadruku(machine: str, request: Request, user=Depends(require_
         "machine": machine.upper(),
         "reports": reports,
         "user": {"username": user["username"], "role": user["role"]},
+        "success": success,
+        "error": error,
     })
 
 
@@ -1449,22 +1523,55 @@ def maszyna_dodaj_raport_zadruku(
     machine: str,
     request: Request,
     job_number: str = Form(...),
-    status: str = Form(...),
     notes: str = Form(""),
+    roll_meters: float = Form(0),
+    roll_pieces: int = Form(0),
+    dimensions_match: str = Form(...),
+    colors_match: str = Form(...),
+    barcode_grade: str = Form(...),
     user=Depends(require_auth),
     conn=Depends(get_db),
 ):
     cur = conn.cursor()
     plan_id = resolve_plan_id_for_job(cur, machine, job_number)
+    dims = normalize_yes_no(dimensions_match)
+    colors = normalize_yes_no(colors_match)
+    grade = normalize_barcode_grade(barcode_grade)
+    if dims not in ("tak", "nie") or colors not in ("tak", "nie") or not grade:
+        return RedirectResponse(f"/maszyna/{machine}/raport-zadruku?error=ankieta", status_code=303)
+    if roll_meters <= 0 and roll_pieces <= 0:
+        return RedirectResponse(f"/maszyna/{machine}/raport-zadruku?error=ilosc", status_code=303)
+    status = print_control_status_from_answers(dims, colors, grade)
+    next_roll = 1
+    if plan_id:
+        cur.execute(
+            "SELECT COALESCE(MAX(roll_no), 0) FROM print_control_reports WHERE plan_id=?",
+            (plan_id,),
+        )
+        max_roll = cur.fetchone()
+        next_roll = int((max_roll[0] if max_roll else 0) or 0) + 1
     cur.execute(
-        "INSERT INTO print_control_reports (machine, date, time, job_number, status, notes, created_by, plan_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (machine.upper(), local_date_str(), local_time_str(), job_number, status, notes, user["username"], plan_id),
+        """
+        INSERT INTO print_control_reports (
+            machine, date, time, job_number, status, notes, created_by, plan_id,
+            roll_meters, roll_pieces, dimensions_match, colors_match, barcode_grade, roll_no
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            machine.upper(), local_date_str(), local_time_str(), job_number, status, notes, user["username"], plan_id,
+            float(roll_meters), int(roll_pieces), dims, colors, grade, next_roll,
+        ),
     )
-    log_production_operation(cur, "raport_zadruku", f"[Panel maszyny] {job_number} [{status}]", machine.upper(), plan_id, user["username"])
+    log_production_operation(
+        cur, "raport_zadruku",
+        f"[Panel maszyny] rolka {next_roll}: {job_number} [{status}] {roll_meters}m / {roll_pieces} szt.",
+        machine.upper(), plan_id, user["username"],
+    )
     log_domain_event(cur, "RAPORT_ZADRUKU_ZAPISANY", user["username"], machine.upper(), plan_id, None)
     insert_notification_if_enabled(
         cur, "RAPORT_ZADRUKU_ZAPISANY", machine.upper(), plan_id,
-        f"Raport zadruku (panel maszyny {machine.upper()}): {job_number} — {status}", "manager", user["username"],
+        f"Raport zadruku (panel maszyny {machine.upper()}): {job_number} rolka {next_roll} — {status}",
+        "manager", user["username"],
     )
     conn.commit()
     if is_ajax(request):

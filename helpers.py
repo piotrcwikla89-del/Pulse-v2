@@ -328,6 +328,86 @@ def plan_production_targets(plan) -> dict:
     return {"meters": meters, "pieces": pieces}
 
 
+def normalize_yes_no(value) -> str:
+    """Normalizuje odpowiedź tak/nie z formularza kontroli zadruku."""
+    raw = str(value or "").strip().lower()
+    if raw in ("tak", "yes", "true", "1", "ok"):
+        return "tak"
+    if raw in ("nie", "no", "false", "0", "nok"):
+        return "nie"
+    return ""
+
+
+def normalize_barcode_grade(value) -> str:
+    """Ocena czytelności kodów kreskowych: A–E."""
+    grade = str(value or "").strip().upper()
+    if grade in ("A", "B", "C", "D", "E"):
+        return grade
+    return ""
+
+
+def print_control_status_from_answers(dimensions_match: str, colors_match: str, barcode_grade: str) -> str:
+    """Status kontroli: OK tylko gdy wymiary i kolory = tak oraz barcode A–C."""
+    dims = normalize_yes_no(dimensions_match)
+    colors = normalize_yes_no(colors_match)
+    grade = normalize_barcode_grade(barcode_grade)
+    if dims == "tak" and colors == "tak" and grade in ("A", "B", "C"):
+        return "OK"
+    return "NOT_OK"
+
+
+def sum_print_control_rolls(cur, plan_id: int) -> dict:
+    """Agreguje metry/sztuki z raportów kontroli zadruku (rolka po rolce) pod postęp i raport końcowy."""
+    cur.execute(
+        """
+        SELECT
+            COUNT(*) AS roll_count,
+            COALESCE(SUM(roll_meters), 0) AS meters,
+            COALESCE(SUM(roll_pieces), 0) AS pieces,
+            COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'OK' THEN roll_pieces ELSE 0 END), 0) AS ok_pieces,
+            COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) != 'OK' THEN roll_pieces ELSE 0 END), 0) AS nok_pieces,
+            COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'OK' THEN roll_meters ELSE 0 END), 0) AS ok_meters,
+            COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) != 'OK' THEN roll_meters ELSE 0 END), 0) AS nok_meters
+        FROM print_control_reports
+        WHERE plan_id=?
+        """,
+        (plan_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {
+            "roll_count": 0,
+            "meters": 0.0,
+            "pieces": 0,
+            "ok_pieces": 0,
+            "nok_pieces": 0,
+            "ok_meters": 0.0,
+            "nok_meters": 0.0,
+        }
+
+    def _num(key, default=0):
+        try:
+            val = row[key]
+        except Exception:
+            val = None
+        if val is None:
+            return default
+        try:
+            return float(val) if isinstance(default, float) else int(val)
+        except (TypeError, ValueError):
+            return default
+
+    return {
+        "roll_count": _num("roll_count", 0),
+        "meters": float(_num("meters", 0.0)),
+        "pieces": int(_num("pieces", 0)),
+        "ok_pieces": int(_num("ok_pieces", 0)),
+        "nok_pieces": int(_num("nok_pieces", 0)),
+        "ok_meters": float(_num("ok_meters", 0.0)),
+        "nok_meters": float(_num("nok_meters", 0.0)),
+    }
+
+
 def normalize_shift_label(shift_val: str) -> str:
     if not shift_val:
         return "dzien"

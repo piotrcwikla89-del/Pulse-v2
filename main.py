@@ -135,7 +135,15 @@ def migrate_schema(cur):
         "farby": [("artwork", "TEXT")],
         "operacje": [("farba_id", "INTEGER")],
         "production_reports": [("plan_id", "INTEGER")],
-        "print_control_reports": [("plan_id", "INTEGER")],
+        "print_control_reports": [
+            ("plan_id", "INTEGER"),
+            ("roll_meters", "REAL"),
+            ("roll_pieces", "INTEGER"),
+            ("dimensions_match", "TEXT"),
+            ("colors_match", "TEXT"),
+            ("barcode_grade", "TEXT"),
+            ("roll_no", "INTEGER"),
+        ],
         "production_plans": [
             ("assortment_prep_status", "TEXT"),
             ("farby_prep_status", "TEXT"),
@@ -397,7 +405,13 @@ def init_db():
             notes TEXT,
             created_by TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            plan_id INTEGER
+            plan_id INTEGER,
+            roll_meters REAL,
+            roll_pieces INTEGER,
+            dimensions_match TEXT,
+            colors_match TEXT,
+            barcode_grade TEXT,
+            roll_no INTEGER
         )
     """)
     execute(cur, """
