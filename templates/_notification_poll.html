@@ -1,9 +1,74 @@
-{# Polling + modal jak dla operatora mieszalni — także kierownik i admin. Wymaga wcześniejszego bootstrap.bundle. #}
+{# Polling powiadomień: toast (auto-hide) dla zwykłych; modal tylko dla wezwań CALL_*. #}
 {% if user and user.role in ['operator_mieszalni', 'prepress', 'manager', 'admin'] %}
+<style>
+    #pulse-toast-stack {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 1090;
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+        width: min(380px, calc(100vw - 1.5rem));
+        pointer-events: none;
+    }
+    .pulse-toast {
+        position: relative;
+        pointer-events: auto;
+        background: #fff;
+        border: 1px solid rgba(29, 53, 87, 0.14);
+        border-left: 4px solid #0e7490;
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(15, 63, 111, 0.16);
+        padding: 0.7rem 1.6rem 0.7rem 0.85rem;
+        animation: pulseToastIn 0.22s ease-out;
+    }
+    .pulse-toast.is-leaving {
+        opacity: 0;
+        transform: translateX(12px);
+        transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .pulse-toast .toast-title {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #0f3f6f;
+        margin-bottom: 0.2rem;
+    }
+    .pulse-toast .toast-msg {
+        font-size: 0.9rem;
+        color: #12304a;
+        line-height: 1.35;
+    }
+    .pulse-toast .toast-meta {
+        margin-top: 0.35rem;
+        font-size: 0.75rem;
+        color: #6c7f93;
+    }
+    .pulse-toast .toast-close {
+        position: absolute;
+        top: 0.35rem;
+        right: 0.45rem;
+        border: 0;
+        background: transparent;
+        color: #6c7f93;
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0.15rem;
+        cursor: pointer;
+    }
+    @keyframes pulseToastIn {
+        from { opacity: 0; transform: translateX(16px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+</style>
 <script>
 (function () {
-    let lastNotificationId = Number(sessionStorage.getItem('pulse:lastNotificationId') || '0');
-    let activeNotificationId = null;
+    var CALL_KEYS = { CALL_MANAGER: 1, CALL_MIXING: 1, CALL_PREPRESS: 1 };
+    var lastNotificationId = Number(sessionStorage.getItem('pulse:lastNotificationId') || '0');
+    var activeCallId = null;
+    var shownToastIds = {};
 
     function getAcknowledgedIds() {
         try {
@@ -21,74 +86,166 @@
         }
     }
 
+    function ensureToastStack() {
+        var stack = document.getElementById('pulse-toast-stack');
+        if (!stack) {
+            stack = document.createElement('div');
+            stack.id = 'pulse-toast-stack';
+            document.body.appendChild(stack);
+        }
+        return stack;
+    }
+
+    function isMachineCall(notification) {
+        var key = String(notification.event_key || '').toUpperCase();
+        if (CALL_KEYS[key]) return true;
+        return /^\s*wezwanie\b/i.test(String(notification.message || ''));
+    }
+
+    function markRead(notificationId) {
+        return fetch('/mark_notification_read/' + notificationId, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data && data.success) {
+                    rememberAcknowledgedId(notificationId);
+                }
+                return data;
+            })
+            .catch(function () { return null; });
+    }
+
+    function showToast(notification) {
+        if (shownToastIds[notification.id]) return;
+        shownToastIds[notification.id] = true;
+        lastNotificationId = Math.max(lastNotificationId, notification.id);
+        sessionStorage.setItem('pulse:lastNotificationId', String(lastNotificationId));
+
+        var stack = ensureToastStack();
+        var zlec = notification.plan_order_number || (notification.plan_id != null ? 'plan #' + notification.plan_id : '');
+        var el = document.createElement('div');
+        el.className = 'pulse-toast';
+        el.setAttribute('role', 'status');
+
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'toast-close';
+        closeBtn.setAttribute('aria-label', 'Zamknij');
+        closeBtn.textContent = '\u00d7';
+
+        var title = document.createElement('div');
+        title.className = 'toast-title';
+        title.textContent = 'Powiadomienie' + (notification.machine ? ' · ' + notification.machine : '');
+
+        var msg = document.createElement('div');
+        msg.className = 'toast-msg';
+        msg.textContent = notification.message || '';
+
+        var meta = document.createElement('div');
+        meta.className = 'toast-meta';
+        meta.textContent = [zlec, notification.plan_lub_number, notification.created_at]
+            .filter(Boolean)
+            .join(' · ');
+
+        el.appendChild(closeBtn);
+        el.appendChild(title);
+        el.appendChild(msg);
+        el.appendChild(meta);
+
+        function dismiss(mark) {
+            if (el.classList.contains('is-leaving')) return;
+            el.classList.add('is-leaving');
+            setTimeout(function () {
+                if (el.parentNode) el.parentNode.removeChild(el);
+            }, 260);
+            if (mark) markRead(notification.id);
+        }
+
+        closeBtn.addEventListener('click', function () { dismiss(true); });
+        stack.appendChild(el);
+        markRead(notification.id);
+        setTimeout(function () { dismiss(false); }, 6500);
+    }
+
+    function showCallModal(notification) {
+        if (activeCallId === notification.id) return;
+        activeCallId = notification.id;
+        lastNotificationId = Math.max(lastNotificationId, notification.id);
+        sessionStorage.setItem('pulse:lastNotificationId', String(lastNotificationId));
+
+        var wrap = document.createElement('div');
+        wrap.className = 'modal fade';
+        wrap.id = 'globalNotificationModal';
+        wrap.tabIndex = -1;
+        wrap.setAttribute('aria-hidden', 'true');
+        wrap.innerHTML =
+            '<div class="modal-dialog">' +
+            '  <div class="modal-content">' +
+            '    <div class="modal-header bg-danger text-white">' +
+            '      <h5 class="modal-title"><i class="fas fa-bell"></i> Wezwanie do maszyny</h5>' +
+            '      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Zamknij"></button>' +
+            '    </div>' +
+            '    <div class="modal-body"></div>' +
+            '    <div class="modal-footer">' +
+            '      <button type="button" class="btn btn-danger" id="confirmGlobalNotification">Potwierdzam odbiór</button>' +
+            '    </div>' +
+            '  </div>' +
+            '</div>';
+
+        var body = wrap.querySelector('.modal-body');
+        function addRow(label, value) {
+            var p = document.createElement('p');
+            var strong = document.createElement('strong');
+            strong.textContent = label + ': ';
+            p.appendChild(strong);
+            p.appendChild(document.createTextNode(value || 'n/d'));
+            body.appendChild(p);
+        }
+        addRow('Maszyna', notification.machine);
+        addRow(
+            'Numer zlecenia',
+            notification.plan_order_number ||
+                (notification.plan_id != null ? '(ID planu: ' + notification.plan_id + ')' : 'n/d')
+        );
+        addRow('LUB', notification.plan_lub_number);
+        addRow('Wiadomość', notification.message);
+        addRow('Czas', notification.created_at);
+
+        document.body.appendChild(wrap);
+        var modal = new bootstrap.Modal(wrap);
+        modal.show();
+
+        wrap.querySelector('#confirmGlobalNotification').addEventListener('click', function () {
+            markRead(notification.id).then(function (data) {
+                if (data && data.success) modal.hide();
+            });
+        });
+
+        wrap.addEventListener('hidden.bs.modal', function () {
+            activeCallId = null;
+            wrap.remove();
+        });
+    }
+
     function checkForNewNotifications() {
         fetch('/api/notifications/new')
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (data.notifications && data.notifications.length > 0) {
-                    var acknowledgedIds = getAcknowledgedIds();
-                    var nextNotification = data.notifications.find(function (item) {
-                        return !acknowledgedIds.includes(item.id);
-                    });
-                    if (nextNotification && activeNotificationId !== nextNotification.id) {
-                        lastNotificationId = Math.max(lastNotificationId, nextNotification.id);
-                        sessionStorage.setItem('pulse:lastNotificationId', String(lastNotificationId));
-                        showNotificationModal(nextNotification);
-                    }
+                if (!data.notifications || !data.notifications.length) return;
+                var acknowledgedIds = getAcknowledgedIds();
+                var pending = data.notifications.filter(function (item) {
+                    return !acknowledgedIds.includes(item.id) && !shownToastIds[item.id] && item.id !== activeCallId;
+                });
+                var calls = pending.filter(isMachineCall);
+                var infos = pending.filter(function (n) { return !isMachineCall(n); });
+                if (calls.length && activeCallId == null) {
+                    showCallModal(calls[0]);
                 }
+                infos.forEach(function (n) { showToast(n); });
             })
             .catch(function (e) { console.error('Błąd podczas sprawdzania powiadomień:', e); });
-    }
-
-    function showNotificationModal(notification) {
-        activeNotificationId = notification.id;
-        var zlec = notification.plan_order_number || (notification.plan_id != null ? '(ID planu: ' + notification.plan_id + ')' : 'n/d');
-        var lub = notification.plan_lub_number || 'n/d';
-        var modalHtml = `
-            <div class="modal fade" id="globalNotificationModal" tabindex="-1" aria-labelledby="globalNotificationModalLabel" aria-hidden="true">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="globalNotificationModalLabel">Nowe powiadomienie</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
-                        </div>
-                        <div class="modal-body">
-                            <p><strong>Maszyna:</strong> ${notification.machine || 'n/d'}</p>
-                            <p><strong>Numer zlecenia:</strong> ${zlec}</p>
-                            <p><strong>LUB:</strong> ${lub}</p>
-                            <p><strong>Wiadomość:</strong> ${notification.message}</p>
-                            <p><strong>Czas:</strong> ${notification.created_at}</p>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-primary" id="confirmGlobalNotification">Potwierdzam odbiór</button>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        var modal = new bootstrap.Modal(document.getElementById('globalNotificationModal'));
-        modal.show();
-
-        document.getElementById('confirmGlobalNotification').addEventListener('click', function () {
-            fetch('/mark_notification_read/' + notification.id, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (data.success) {
-                        rememberAcknowledgedId(notification.id);
-                        modal.hide();
-                        var el = document.getElementById('globalNotificationModal');
-                        if (el) el.remove();
-                    }
-                });
-        });
-
-        document.getElementById('globalNotificationModal').addEventListener('hidden.bs.modal', function () {
-            activeNotificationId = null;
-            this.remove();
-        });
     }
 
     setInterval(checkForNewNotifications, 5000);

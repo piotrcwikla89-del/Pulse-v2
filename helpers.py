@@ -224,10 +224,20 @@ def is_notification_enabled(cur, event_key: str) -> bool:
 def insert_notification_if_enabled(cur, event_key: str, machine, plan_id, message, target_role, created_by):
     if not is_notification_enabled(cur, event_key):
         return
-    cur.execute(
-        "INSERT INTO notifications (machine, plan_id, message, target_role, created_by) VALUES (?, ?, ?, ?, ?)",
-        (machine, plan_id, message, target_role, created_by),
-    )
+    try:
+        cur.execute(
+            """
+            INSERT INTO notifications (machine, plan_id, message, target_role, created_by, event_key)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (machine, plan_id, message, target_role, created_by, event_key),
+        )
+    except Exception:
+        # Starsze schematy bez kolumny event_key
+        cur.execute(
+            "INSERT INTO notifications (machine, plan_id, message, target_role, created_by) VALUES (?, ?, ?, ?, ?)",
+            (machine, plan_id, message, target_role, created_by),
+        )
 
 
 def log_domain_event(cur, event_type: str, actor_user: str, machine=None, plan_id=None, lub_number=None, payload=None):

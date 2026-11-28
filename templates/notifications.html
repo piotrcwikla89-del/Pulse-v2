@@ -8,148 +8,72 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/static/app-modern.css">
 </head>
-<body class="bg-light">
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1><i class="fas fa-bell"></i> Powiadomienia</h1>
-        <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
+<body class="bg-light stock-page">
+<div class="container-fluid px-3 px-lg-4 mt-3 mb-5">
+    <div class="page-toolbar">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-bell"></i> Powiadomienia</h1>
+            <p class="mb-0">Wezwania wymagają potwierdzenia · pozostałe pojawiają się jako pasek w rogu.</p>
+        </div>
+        <div class="toolbar-actions">
+            <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
+        </div>
     </div>
-    <div class="card">
+
+    <div class="card chart-card">
+        <div class="card-header">Lista powiadomień</div>
         <div class="card-body">
             {% if notifications %}
-            <ul class="list-group" id="notificationsList">
+            <ul class="list-group list-group-flush" id="notificationsList">
                 {% for n in notifications %}
                 <li class="list-group-item{% if not n.is_read %} list-group-item-warning{% endif %}" data-id="{{ n.id }}">
-                    <strong>{{ n.created_at|localdatetime }}</strong> — {{ n.message }} <br>
-                    <small>Maszyna: {{ n.machine or 'n/d' }} | Zlecenie: {{ n.plan_order_number or n.plan_id or 'n/d' }} | LUB: {{ n.plan_lub_number or '—' }} | Adresat: {{ n.target_role }}{{ ' / ' + n.target_user if n.target_user }}</small>
-                    {% if not n.is_read %}
-                    <button class="btn btn-sm btn-success float-end mark-read" data-id="{{ n.id }}">Oznacz jako przeczytane</button>
-                    {% endif %}
+                    <div class="d-flex justify-content-between gap-3 flex-wrap">
+                        <div>
+                            <strong>{{ n.created_at|localdatetime }}</strong>
+                            {% if n.event_key and n.event_key.startswith('CALL_') %}
+                            <span class="badge bg-danger ms-1">Wezwanie</span>
+                            {% endif %}
+                            <div class="mt-1">{{ n.message }}</div>
+                            <small class="text-muted">
+                                Maszyna: {{ n.machine or 'n/d' }}
+                                · Zlecenie: {{ n.plan_order_number or n.plan_id or 'n/d' }}
+                                · LUB: {{ n.plan_lub_number or '—' }}
+                                · Adresat: {{ n.target_role }}{{ ' / ' + n.target_user if n.target_user }}
+                            </small>
+                        </div>
+                        {% if not n.is_read %}
+                        <button class="btn btn-sm btn-success align-self-start mark-read" data-id="{{ n.id }}">Oznacz jako przeczytane</button>
+                        {% endif %}
+                    </div>
                 </li>
                 {% endfor %}
             </ul>
             {% else %}
-            <div class="alert alert-secondary">Brak nowych powiadomień.</div>
+            <div class="text-muted">Brak nowych powiadomień.</div>
             {% endif %}
-        </div>
-    </div>
-</div>
-
-<!-- Modal dla nowych powiadomień -->
-<div class="modal fade" id="notificationModal" tabindex="-1" aria-labelledby="notificationModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="notificationModalLabel">Nowe powiadomienie</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" id="notificationModalBody">
-                <!-- Treść powiadomienia -->
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-primary" id="confirmNotification">Potwierdzam odbiór</button>
-            </div>
         </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let lastNotificationId = Number(sessionStorage.getItem('pulse:lastNotificationId') || '0');
-let currentNotification = null;
-
-function getAcknowledgedIds() {
-    try {
-        return JSON.parse(sessionStorage.getItem('pulse:acknowledgedNotifications') || '[]');
-    } catch (_error) {
-        return [];
-    }
-}
-
-function rememberAcknowledgedId(notificationId) {
-    const ids = getAcknowledgedIds();
-    if (!ids.includes(notificationId)) {
-        ids.push(notificationId);
-        sessionStorage.setItem('pulse:acknowledgedNotifications', JSON.stringify(ids));
-    }
-}
-
-function checkForNewNotifications() {
-    fetch('/api/notifications/new')
-        .then(response => response.json())
-        .then(data => {
-            if (data.notifications && data.notifications.length > 0) {
-                const notification = data.notifications.find(item => !getAcknowledgedIds().includes(item.id));
-                if (notification && notification.id > 0 && notification.id !== (currentNotification && currentNotification.id)) {
-                    lastNotificationId = Math.max(lastNotificationId, notification.id);
-                    sessionStorage.setItem('pulse:lastNotificationId', String(lastNotificationId));
-                    showNotificationModal(notification);
-                }
-            }
-        })
-        .catch(error => console.error('Błąd podczas sprawdzania powiadomień:', error));
-}
-
-function showNotificationModal(notification) {
-    currentNotification = notification;
-    var zlec = notification.plan_order_number || (notification.plan_id != null ? '(ID planu: ' + notification.plan_id + ')' : 'n/d');
-    document.getElementById('notificationModalBody').innerHTML = `
-        <p><strong>Maszyna:</strong> ${notification.machine || 'n/d'}</p>
-        <p><strong>Numer zlecenia:</strong> ${zlec}</p>
-        <p><strong>LUB:</strong> ${notification.plan_lub_number || 'n/d'}</p>
-        <p><strong>Wiadomość:</strong> ${notification.message}</p>
-        <p><strong>Czas:</strong> ${notification.created_at}</p>
-    `;
-    const modal = new bootstrap.Modal(document.getElementById('notificationModal'));
-    modal.show();
-}
-
-document.getElementById('confirmNotification').addEventListener('click', function() {
-    if (currentNotification) {
-        fetch(`/mark_notification_read/${currentNotification.id}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                rememberAcknowledgedId(currentNotification.id);
-                const modal = bootstrap.Modal.getInstance(document.getElementById('notificationModal'));
-                modal.hide();
-                const row = document.querySelector(`[data-id="${currentNotification.id}"]`);
-                if (row) {
-                    row.classList.remove('list-group-item-warning');
-                    const button = row.querySelector('.mark-read');
-                    if (button) button.remove();
-                }
-                currentNotification = null;
-            }
-        });
-    }
-});
-
-// Polling co 5 sekund
-setInterval(checkForNewNotifications, 5000);
-
-// Inicjalne sprawdzenie
-checkForNewNotifications();
-
-// Obsługa przycisków "Oznacz jako przeczytane"
 document.addEventListener('click', function(e) {
     if (e.target.classList.contains('mark-read')) {
         const id = e.target.getAttribute('data-id');
-        fetch(`/mark_notification_read/${id}`, {
+        fetch('/mark_notification_read/' + id, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
         })
-        .then(response => response.json())
-        .then(data => {
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
             if (data.success) {
-                rememberAcknowledgedId(Number(id));
+                try {
+                    var ids = JSON.parse(sessionStorage.getItem('pulse:acknowledgedNotifications') || '[]');
+                    if (!ids.includes(Number(id))) {
+                        ids.push(Number(id));
+                        sessionStorage.setItem('pulse:acknowledgedNotifications', JSON.stringify(ids));
+                    }
+                } catch (_err) {}
                 e.target.closest('li').classList.remove('list-group-item-warning');
                 e.target.remove();
             }
@@ -157,5 +81,6 @@ document.addEventListener('click', function(e) {
     }
 });
 </script>
+{% include '_notification_poll.html' %}
 </body>
 </html>
