@@ -112,6 +112,41 @@ def test_daily_packages_group_final_and_print_by_order():
     assert pdf[:4] == b"%PDF"
 
 
+def test_daily_packages_backfill_rolls_from_plan_across_days():
+    """Raport końcowy dnia D musi dociągnąć rolki z planu nawet gdy kontrole były wcześniej."""
+    conn, cur = _db()
+    cur.execute(
+        "INSERT INTO production_plans (machine, order_number, artwork_number, lub_number, order_name, status) VALUES (?,?,?,?,?,?)",
+        ("D6", "1004543833", "1535452", "LUB4475", "Tubel", "completed"),
+    )
+    plan_id = cur.lastrowid
+    # 6 rolek dnia wcześniejszego
+    for i in range(6):
+        cur.execute(
+            "INSERT INTO print_control_reports (machine, date, time, job_number, status, notes, created_by, plan_id, roll_meters, roll_pieces, dimensions_match, colors_match, barcode_grade, roll_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("D6", "2026-11-27", f"{10+i}:00", "1004543833", "OK", "", "op", plan_id, 880.0, 24000, "tak", "tak", "A", i + 1),
+        )
+    # Raport końcowy dopiero 28.11 nad ranem
+    cur.execute(
+        "INSERT INTO production_reports (machine, date, shift, job_number, quantity, ok_quantity, nok_quantity, notes, created_by, plan_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "D6", "2026-11-28", "dzien", "1004543833", 144000, 144000, 0,
+            "Suma z kontroli zadruku: 5280.0 m / 144000 szt. (6 rolek; OK 144000 / NOK 0).",
+            "op", plan_id, "2026-11-28 02:18:02",
+        ),
+    )
+    conn.commit()
+
+    payload = build_daily_packages(cur, "2026-11-28", shift=None)
+    assert payload["totals"]["packages"] == 1
+    pkg = payload["packages"][0]
+    assert pkg["plan_id"] == plan_id
+    assert len(pkg["print_reports"]) == 6
+    assert pkg["roll_count"] == 6
+    assert pkg["roll_meters"] == 5280.0
+    assert pkg["roll_pieces"] == 144000
+
+
 def test_month_history_and_stats():
     conn, cur = _db()
     cur.execute(

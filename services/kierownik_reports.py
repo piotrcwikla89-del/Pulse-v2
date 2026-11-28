@@ -23,7 +23,11 @@ def _as_dict(row) -> dict:
 
 
 def shift_key_for_print(report_date: str, report_time, ref_day: date) -> str | None:
-    """Przypisuje kontrolę zadruku do zmiany dnia referencyjnego (6–18 / 18–6)."""
+    """Przypisuje kontrolę zadruku do zmiany dnia referencyjnego (6–18 / 18–6).
+
+    Noc dnia D: D 18:00 → D+1 06:00.
+    Godziny 00:00–06:00 w dniu D należą do nocy dnia D-1 (tu: None dla ref=D).
+    """
     time_parts = _parse_shift_time(report_time)
     hour = time_parts[0] if time_parts else 12
     row_date = str(report_date or "")[:10]
@@ -38,16 +42,47 @@ def shift_key_for_print(report_date: str, report_time, ref_day: date) -> str | N
     return None
 
 
+def print_belongs_to_calendar_day(report_date: str, report_time, ref_day: date) -> bool:
+    """Czy kontrola wpada w kalendarzowy dzień D (00:00–24:00) albo domknięcie nocy D+1 <06:00."""
+    row_date = str(report_date or "")[:10]
+    ref = ref_day.strftime("%Y-%m-%d")
+    nxt = (ref_day + timedelta(days=1)).strftime("%Y-%m-%d")
+    if row_date == ref:
+        return True
+    time_parts = _parse_shift_time(report_time)
+    hour = time_parts[0] if time_parts else 12
+    return row_date == nxt and hour < 6
+
+
 def _package_key(plan_id, order_number: str, machine: str) -> str:
     if plan_id:
         return f"plan:{plan_id}"
     return f"job:{order_number}|{machine}"
 
 
+def _recompute_print_stats(pkg: dict) -> None:
+    pkg["roll_count"] = len(pkg.get("print_reports") or [])
+    pkg["roll_meters"] = 0.0
+    pkg["roll_pieces"] = 0
+    pkg["print_ok"] = 0
+    pkg["print_nok"] = 0
+    for r in pkg.get("print_reports") or []:
+        pkg["roll_meters"] += float(r.get("roll_meters") or 0)
+        pkg["roll_pieces"] += int(r.get("roll_pieces") or 0)
+        if (r.get("status") or "").upper() == "OK":
+            pkg["print_ok"] += 1
+        else:
+            pkg["print_nok"] += 1
+    pkg["roll_meters"] = round(pkg["roll_meters"], 2)
+
+
 def build_daily_packages(cur, date_q: str, shift: str | None = None) -> dict:
     """
     Pakiety zleceń na dzień: raporty końcowe + kontrole zadruku przypięte do numeru zlecenia.
     shift: None = cały dzień, 'dzien' / 'noc'.
+
+    Gdy pakiet pojawia się przez raport końcowy danego dnia, dociągamy komplet kontroli
+    zadruku dla tego plan_id (nawet jeśli rolki były w innym dniu kalendarzowym).
     """
     try:
         ref_day = datetime.strptime(date_q, "%Y-%m-%d").date()
@@ -85,6 +120,13 @@ def build_daily_packages(cur, date_q: str, shift: str | None = None) -> dict:
             }
         return packages[key]
 
+    def _add_print(pkg: dict, r: dict) -> None:
+        rid = r.get("id")
+        if rid is not None:
+            if any(existing.get("id") == rid for existing in pkg["print_reports"]):
+                return
+        pkg["print_reports"].append(r)
+
     cur.execute(
         """
         SELECT pr.*, pp.order_name, pp.lub_number, pp.artwork_number, pp.order_number AS plan_order
@@ -113,23 +155,27 @@ def build_daily_packages(cur, date_q: str, shift: str | None = None) -> dict:
         pkg["nok"] += int(r.get("nok_quantity") or 0)
 
     next_day = (ref_day + timedelta(days=1)).strftime("%Y-%m-%d")
+    prev_day = (ref_day - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Szeroki zakres dat: dzień kalendarzowy + domknięcie nocy + ewentualny start nocy dnia poprzedniego
     cur.execute(
         """
         SELECT pcr.*, pp.order_name, pp.lub_number, pp.artwork_number, pp.order_number AS plan_order
         FROM print_control_reports pcr
         LEFT JOIN production_plans pp ON pp.id = pcr.plan_id
-        WHERE pcr.date=? OR pcr.date=?
+        WHERE pcr.date=? OR pcr.date=? OR pcr.date=?
         ORDER BY pcr.machine, pcr.created_at, pcr.id
         """,
-        (date_q, next_day),
+        (prev_day, date_q, next_day),
     )
     for row in cur.fetchall():
         r = _as_dict(row)
-        sk = shift_key_for_print(r.get("date"), r.get("time"), ref_day)
-        if sk is None:
-            continue
-        if shift_norm and sk != shift_norm:
-            continue
+        if shift_norm is None:
+            if not print_belongs_to_calendar_day(r.get("date"), r.get("time"), ref_day):
+                continue
+        else:
+            sk = shift_key_for_print(r.get("date"), r.get("time"), ref_day)
+            if sk != shift_norm:
+                continue
         order = r.get("plan_order") or r.get("job_number") or "—"
         pkg = _ensure(r.get("plan_id"), order, r.get("machine") or "—")
         if r.get("order_name"):
@@ -138,14 +184,42 @@ def build_daily_packages(cur, date_q: str, shift: str | None = None) -> dict:
             pkg["lub_number"] = r["lub_number"]
         if r.get("artwork_number"):
             pkg["artwork_number"] = r["artwork_number"]
-        pkg["print_reports"].append(r)
-        pkg["roll_count"] += 1
-        pkg["roll_meters"] += float(r.get("roll_meters") or 0)
-        pkg["roll_pieces"] += int(r.get("roll_pieces") or 0)
-        if (r.get("status") or "").upper() == "OK":
-            pkg["print_ok"] += 1
-        else:
-            pkg["print_nok"] += 1
+        _add_print(pkg, r)
+
+    # Komplet rolek dla pakietów, które weszły raportem końcowym — po plan_id,
+    # niezależnie od dnia kalendarzowego kontroli (to ten sam przebieg zlecenia).
+    plan_ids = sorted({int(p["plan_id"]) for p in packages.values() if p.get("plan_id")})
+    if plan_ids:
+        placeholders = ",".join("?" * len(plan_ids))
+        cur.execute(
+            f"""
+            SELECT pcr.*, pp.order_name, pp.lub_number, pp.artwork_number, pp.order_number AS plan_order
+            FROM print_control_reports pcr
+            LEFT JOIN production_plans pp ON pp.id = pcr.plan_id
+            WHERE pcr.plan_id IN ({placeholders})
+            ORDER BY pcr.created_at, pcr.id
+            """,
+            tuple(plan_ids),
+        )
+        by_plan: dict[int, list] = defaultdict(list)
+        for row in cur.fetchall():
+            r = _as_dict(row)
+            pid = int(r.get("plan_id") or 0)
+            if pid:
+                by_plan[pid].append(r)
+        for pkg in packages.values():
+            pid = pkg.get("plan_id")
+            if not pid:
+                continue
+            for r in by_plan.get(int(pid), []):
+                _add_print(pkg, r)
+
+    for pkg in packages.values():
+        _recompute_print_stats(pkg)
+        pkg["print_reports"] = sorted(
+            pkg["print_reports"],
+            key=lambda r: (str(r.get("created_at") or r.get("date") or ""), int(r.get("id") or 0)),
+        )
 
     # Uzupełnij meta planu, jeśli pakiet powstał tylko z kontroli
     missing_meta = [p for p in packages.values() if p.get("plan_id") and not p.get("order_name")]
