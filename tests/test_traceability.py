@@ -14,7 +14,7 @@ def test_can_view_traceability_for_admin_and_manager():
     assert router._can_view_traceability({"role": "drukarz"}) is False
 
 
-def test_build_traceability_context_finds_plan_and_events(tmp_path):
+def _setup_traceability_db(tmp_path):
     db_path = tmp_path / "traceability.sqlite"
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -71,7 +71,13 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
             notes TEXT,
             created_by TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            plan_id INTEGER
+            plan_id INTEGER,
+            roll_meters REAL,
+            roll_pieces INTEGER,
+            dimensions_match TEXT,
+            colors_match TEXT,
+            barcode_grade TEXT,
+            roll_no INTEGER
         )
         """
     )
@@ -132,10 +138,41 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE polymers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lub TEXT NOT NULL,
+            kolor TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'dostepna',
+            lokalizacja TEXT,
+            data_waznosci DATE,
+            uwagi TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE production_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            machine TEXT,
+            plan_id INTEGER,
+            user TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    return conn, cur
+
+
+def test_build_traceability_context_finds_plan_and_events(tmp_path):
+    conn, cur = _setup_traceability_db(tmp_path)
 
     cur.execute(
-        "INSERT INTO production_plans (machine, order_number, artwork_number, lub_number, order_name, status, assortment_prep_status, farby_prep_status, polimery_prep_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("D1", "ZL-1001", "ART-77", "LUB-88", "Testowy nadruk", "in_progress", "ready", "ready", "ready"),
+        "INSERT INTO production_plans (machine, order_number, artwork_number, lub_number, order_name, status, assortment_prep_status, farby_prep_status, polimery_prep_status, meters, pieces) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("D1", "ZL-1001", "ART-77", "LUB-88", "Testowy nadruk", "in_progress", "ready", "ready", "ready", 500, 1000),
     )
     plan_id = cur.lastrowid
     cur.execute(
@@ -143,8 +180,8 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
         ("D1", "2026-07-19", "dzień", "JOB-001", 1000, 980, 20, "ok", "admin", plan_id),
     )
     cur.execute(
-        "INSERT INTO print_control_reports (machine, date, time, job_number, status, notes, created_by, plan_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("D1", "2026-07-19", "10:00", "JOB-001", "OK", "ok", "admin", plan_id),
+        "INSERT INTO print_control_reports (machine, date, time, job_number, status, notes, created_by, plan_id, roll_meters, roll_pieces, dimensions_match, colors_match, barcode_grade, roll_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("D1", "2026-07-19", "10:00", "JOB-001", "OK", "ok", "admin", plan_id, 120.0, 400, "tak", "tak", "A", 1),
     )
     cur.execute(
         "INSERT INTO winding_reports (machine, plan_id, date, shift, order_number, cut_meters, ok_meters, nok_meters, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -163,6 +200,10 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
         "INSERT INTO farba_lub_assignments (farba_id, lub_number, plan_id, assigned_by) VALUES (?, ?, ?, ?)",
         (farba_id, "LUB-88", plan_id, "admin"),
     )
+    cur.execute(
+        "INSERT INTO polymers (lub, kolor, status, lokalizacja) VALUES (?, ?, ?, ?)",
+        ("LUB-88", "Cyan", "dostepna", "R1"),
+    )
     conn.commit()
 
     result = router._build_traceability_context(cur, "ZL-1001")
@@ -170,14 +211,69 @@ def test_build_traceability_context_finds_plan_and_events(tmp_path):
     assert result["plan"]["order_number"] == "ZL-1001"
     assert result["plan"]["lub_number"] == "LUB-88"
     assert result["materials"][0]["pantone"] == "PANTONE 123"
+    assert result["polimery"][0]["kolor"] == "Cyan"
     assert result["events"][0]["event_type"] == "JOB_STARTED"
 
     by_art = router._build_traceability_context(cur, "ART-77")
-    assert by_art["plan"]["order_number"] == "ZL-1001"
+    assert by_art["plans_count"] >= 1
+    assert by_art["match_mode"] in ("artwork", "order", "mixed")
 
     by_lub = router._build_traceability_context(cur, "88")
-    assert by_lub["plan"]["order_number"] == "ZL-1001"
+    assert by_lub["plans_count"] >= 1
     assert by_lub["materials"][0]["pantone"] == "PANTONE 123"
+    assert by_lub["polimery"][0]["kolor"] == "Cyan"
 
     by_lub_full = router._build_traceability_context(cur, "LUB-88")
-    assert by_lub_full["plan"]["id"] == plan_id
+    assert by_lub_full["plans_count"] >= 1
+
+
+def test_lub_and_artwork_return_all_historical_jobs(tmp_path):
+    conn, cur = _setup_traceability_db(tmp_path)
+
+    rows = [
+        ("D6", "ZL-1001", "ART-77", "LUB4475", "Run 1", "completed"),
+        ("D8", "ZL-2002", "ART-77", "LUB4475", "Run 2", "completed"),
+        ("D10", "ZL-3003", "ART-88", "LUB4475", "Run 3", "completed"),
+        ("D6", "ZL-4004", "ART-77", "LUB9999", "Other art same? wait", "planned"),
+    ]
+    # Fix: ZL-4004 should be different LUB for artwork-only overlap
+    rows[3] = ("D6", "ZL-4004", "ART-77", "LUB9999", "Same artwork other LUB", "planned")
+
+    for machine, order, art, lub, name, status in rows:
+        cur.execute(
+            "INSERT INTO production_plans (machine, order_number, artwork_number, lub_number, order_name, status, assortment_prep_status, farby_prep_status, polimery_prep_status, meters, pieces) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (machine, order, art, lub, name, status, "ready", "ready", "ready", 100, 200),
+        )
+    cur.execute(
+        "INSERT INTO farby (pantone, lub, polka, waga, status, data_produkcji) VALUES (?, ?, ?, ?, ?, ?)",
+        ("Red", "LUB4475", "B2", 2.0, "dostepna", "2026-01-01"),
+    )
+    cur.execute(
+        "INSERT INTO polymers (lub, kolor, status, lokalizacja) VALUES (?, ?, ?, ?)",
+        ("4475", "Magenta", "dostepna", "P2"),
+    )
+    conn.commit()
+
+    by_lub = router._build_traceability_context(cur, "4475")
+    assert by_lub["match_mode"] == "lub"
+    assert by_lub["plans_count"] == 3
+    orders = {p["order_number"] for p in by_lub["plans"]}
+    assert orders == {"ZL-1001", "ZL-2002", "ZL-3003"}
+    assert by_lub["polimery"][0]["kolor"] == "Magenta"
+    # Widok klasyfikacji LUB — bez auto-wyboru jednego dossier, gdy jest wiele zleceń
+    assert by_lub["plan"] is None
+
+    by_art = router._build_traceability_context(cur, "ART-77")
+    assert by_art["match_mode"] == "artwork"
+    assert by_art["plans_count"] == 3
+    art_orders = {p["order_number"] for p in by_art["plans"]}
+    assert art_orders == {"ZL-1001", "ZL-2002", "ZL-4004"}
+
+    # Drill-down do konkretnego historycznego zlecenia
+    plan_id = next(p["id"] for p in by_lub["plans"] if p["order_number"] == "ZL-2002")
+    detail = router._build_traceability_context(cur, "4475", plan_id=plan_id)
+    assert detail["plan"]["order_number"] == "ZL-2002"
+    related_orders = {p["order_number"] for p in detail["related_by_lub"]}
+    assert "ZL-1001" in related_orders
+    assert "ZL-3003" in related_orders
+    assert "ZL-2002" not in related_orders

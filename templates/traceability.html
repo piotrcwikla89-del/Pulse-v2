@@ -7,13 +7,36 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .trace-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: rgba(15, 63, 111, 0.08);
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .plan-row-active {
+            background: rgba(25, 135, 84, 0.08) !important;
+        }
+        .section-empty {
+            color: #6c757d;
+            margin: 0;
+        }
+        .mini-meta {
+            font-size: 0.85rem;
+            color: #415a73;
+        }
+    </style>
 </head>
 <body class="bg-light">
 <div class="container mt-4 mb-5">
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
         <div>
             <h1 class="mb-1"><i class="fas fa-link"></i> Traceability</h1>
-            <p class="mb-0">Pierwszy testowy model śledzenia zleceń i komponentów.</p>
+            <p class="mb-0">Pełny dossier zlecenia, LUB i artwork — historia, materiały, raporty i zdarzenia.</p>
         </div>
         <div>
             <a href="/dashboard" class="btn btn-outline-primary btn-sm"><i class="fas fa-home"></i> Dashboard</a>
@@ -23,55 +46,109 @@
 
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-dark text-white">
-            <h5 class="mb-0"><i class="fas fa-search"></i> Wyszukaj po numerze zlecenia, artwork lub LUB</h5>
+            <h5 class="mb-0"><i class="fas fa-search"></i> Szukaj po zleceniu, LUB lub artwork</h5>
         </div>
         <div class="card-body">
             <form method="get" action="/traceability" class="row g-3 align-items-end">
                 <div class="col-md-10">
-                    <input type="text" name="query" class="form-control" value="{{ context.query }}" placeholder="np. ZL-1001, ART-77, LUB-88">
+                    <input type="text" name="query" class="form-control" value="{{ context.query }}" placeholder="np. ZL-1001, ART-77, LUB4475 lub 4475">
                 </div>
                 <div class="col-md-2">
                     <button type="submit" class="btn btn-primary w-100"><i class="fas fa-search"></i> Szukaj</button>
                 </div>
             </form>
+            {% if context.query %}
+            <div class="mt-3 d-flex flex-wrap gap-2">
+                {% if context.match_mode %}
+                <span class="trace-chip">Tryb: {{ context.match_mode }}</span>
+                {% endif %}
+                {% if context.keys.order_number %}
+                <span class="trace-chip">Zlecenie {{ context.keys.order_number }}</span>
+                {% endif %}
+                {% if context.keys.lub_number %}
+                <span class="trace-chip">LUB {{ context.keys.lub_number|lub }}</span>
+                {% endif %}
+                {% if context.keys.artwork_number %}
+                <span class="trace-chip">Artwork {{ context.keys.artwork_number }}</span>
+                {% endif %}
+                <span class="trace-chip">{{ context.plans_count }} zleceń w historii</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 
-    {% if context.plan %}
-    <div class="row g-4">
-        <div class="col-lg-4">
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="fas fa-file-alt"></i> Podsumowanie zlecenia</h5>
-                </div>
-                <div class="card-body">
-                    <p class="mb-2"><strong>Numer zlecenia:</strong> {{ context.plan.order_number }}</p>
-                    <p class="mb-2"><strong>Artwork:</strong> {{ context.plan.artwork_number or '—' }}</p>
-                    <p class="mb-2"><strong>LUB:</strong> {{ context.plan.lub_number or '—' }}</p>
-                    <p class="mb-2"><strong>Maszyna:</strong> {{ context.plan.machine }}</p>
-                    <p class="mb-2"><strong>Status:</strong> {{ context.plan.status }}</p>
-                    <p class="mb-0"><strong>Farby / polimery:</strong> {{ context.plan.farby_prep_status }} / {{ context.plan.polimery_prep_status }}</p>
-                </div>
+    {% if context.query and not context.plans %}
+    <div class="alert alert-secondary">Brak danych dla podanego zapytania.</div>
+    {% elif context.plans %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-clock-rotate-left"></i> Historyczne zlecenia</h5>
+            <span class="badge bg-light text-dark">{{ context.plans_count }}</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Zlecenie</th>
+                            <th>Artwork</th>
+                            <th>LUB</th>
+                            <th>Maszyna</th>
+                            <th>Status</th>
+                            <th>Plan</th>
+                            <th>Wykonanie (rolki)</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in context.plans %}
+                        <tr class="{% if context.plan and p.id == context.plan.id %}plan-row-active{% endif %}">
+                            <td>
+                                <strong>{{ p.order_number }}</strong>
+                                <div class="mini-meta">{{ p.order_name or '—' }}</div>
+                            </td>
+                            <td>{{ p.artwork_number or '—' }}</td>
+                            <td>{{ p.lub_number|lub if p.lub_number else '—' }}</td>
+                            <td>{{ p.machine }}</td>
+                            <td><span class="badge bg-secondary">{{ p.status }}</span></td>
+                            <td class="mini-meta">{{ p.planned.meters }} m · {{ p.planned.pieces }} szt.</td>
+                            <td class="mini-meta">
+                                {{ p.roll_totals.meters }} m · {{ p.roll_totals.pieces }} szt.
+                                <div>{{ p.progress_pct }}% · {{ p.roll_totals.roll_count }} rolek</div>
+                            </td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-primary"
+                                   href="/traceability?query={{ context.query|urlencode }}&plan_id={{ p.id }}">
+                                    Dossier
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
+    </div>
 
-        <div class="col-lg-8">
-            <div class="card shadow-sm mb-4">
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
                 <div class="card-header bg-success text-white">
-                    <h5 class="mb-0"><i class="fas fa-flask"></i> Komponenty / farby powiązane z LUB</h5>
+                    <h5 class="mb-0"><i class="fas fa-flask"></i> Farby powiązane z LUB</h5>
                 </div>
                 <div class="card-body">
                     {% if context.materials %}
                     <div class="table-responsive">
-                        <table class="table table-sm">
+                        <table class="table table-sm mb-0">
                             <thead>
-                                <tr><th>Pantone</th><th>LUB</th><th>Polka</th><th>Waga</th><th>Status</th></tr>
+                                <tr><th>Pantone</th><th>LUB</th><th>Półka</th><th>Waga</th><th>Status</th></tr>
                             </thead>
                             <tbody>
                                 {% for m in context.materials %}
                                 <tr>
                                     <td>{{ m.pantone }}</td>
-                                    <td>{{ m.lub or '—' }}</td>
+                                    <td>{{ m.lub|lub if m.lub else '—' }}</td>
                                     <td>{{ m.polka or '—' }}</td>
                                     <td>{{ m.waga }}</td>
                                     <td>{{ m.status }}</td>
@@ -81,12 +158,150 @@
                         </table>
                     </div>
                     {% else %}
-                    <p class="text-muted mb-0">Brak powiązanych komponentów / farb dla tego LUB.</p>
+                    <p class="section-empty">Brak farb dla tego LUB.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-layer-group"></i> Polimery powiązane z LUB</h5>
+                </div>
+                <div class="card-body">
+                    {% if context.polimery %}
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <thead>
+                                <tr><th>Kolor</th><th>LUB</th><th>Lokalizacja</th><th>Status</th><th>Ważność</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for p in context.polimery %}
+                                <tr>
+                                    <td>{{ p.kolor }}</td>
+                                    <td>{{ p.lub|lub if p.lub else '—' }}</td>
+                                    <td>{{ p.lokalizacja or '—' }}</td>
+                                    <td>{{ p.status }}</td>
+                                    <td>{{ p.data_waznosci or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="section-empty">Brak polimerów dla tego LUB.</p>
                     {% endif %}
                 </div>
             </div>
         </div>
     </div>
+
+    {% if context.plan %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5 class="mb-0"><i class="fas fa-folder-open"></i> Dossier zlecenia {{ context.plan.order_number }}</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="mini-meta">Artwork</div>
+                    <strong>{{ context.plan.artwork_number or '—' }}</strong>
+                </div>
+                <div class="col-md-3">
+                    <div class="mini-meta">LUB</div>
+                    <strong>{{ context.plan.lub_number|lub if context.plan.lub_number else '—' }}</strong>
+                </div>
+                <div class="col-md-2">
+                    <div class="mini-meta">Maszyna</div>
+                    <strong>{{ context.plan.machine }}</strong>
+                </div>
+                <div class="col-md-2">
+                    <div class="mini-meta">Status</div>
+                    <strong>{{ context.plan.status }}</strong>
+                </div>
+                <div class="col-md-2">
+                    <div class="mini-meta">Prep farby / polimery</div>
+                    <strong>{{ context.plan.farby_prep_status or '—' }} / {{ context.plan.polimery_prep_status or '—' }}</strong>
+                </div>
+                <div class="col-md-3">
+                    <div class="mini-meta">Plan</div>
+                    <strong>{{ context.planned.meters if context.planned else context.plan.planned.meters }} m · {{ context.planned.pieces if context.planned else context.plan.planned.pieces }} szt.</strong>
+                </div>
+                <div class="col-md-3">
+                    <div class="mini-meta">Kontrola zadruku</div>
+                    <strong>
+                        {% if context.roll_totals %}
+                        {{ context.roll_totals.meters }} m · {{ context.roll_totals.pieces }} szt. ({{ context.roll_totals.roll_count }} rolek)
+                        {% else %}
+                        —
+                        {% endif %}
+                    </strong>
+                </div>
+                <div class="col-md-3">
+                    <div class="mini-meta">Laminat</div>
+                    <strong>{{ context.plan.laminate or '—' }}</strong>
+                </div>
+                <div class="col-md-3">
+                    <div class="mini-meta">Data planu</div>
+                    <strong>{{ context.plan.planned_date or '—' }}</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if context.related_by_lub or context.related_by_artwork %}
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header">
+                    <h6 class="mb-0">Inne zlecenia pod tym LUB ({{ context.related_by_lub|length }})</h6>
+                </div>
+                <div class="card-body">
+                    {% if context.related_by_lub %}
+                    <ul class="list-group list-group-flush">
+                        {% for p in context.related_by_lub[:20] %}
+                        <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ p.order_number }}</strong>
+                                <div class="mini-meta">{{ p.machine }} · {{ p.status }} · art {{ p.artwork_number or '—' }}</div>
+                            </div>
+                            <a class="btn btn-sm btn-outline-secondary" href="/traceability?query={{ (p.lub_number or context.query)|urlencode }}&plan_id={{ p.id }}">Otwórz</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="section-empty">Brak innych zleceń pod tym LUB.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header">
+                    <h6 class="mb-0">Inne zlecenia pod tym artwork ({{ context.related_by_artwork|length }})</h6>
+                </div>
+                <div class="card-body">
+                    {% if context.related_by_artwork %}
+                    <ul class="list-group list-group-flush">
+                        {% for p in context.related_by_artwork[:20] %}
+                        <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ p.order_number }}</strong>
+                                <div class="mini-meta">{{ p.machine }} · {{ p.status }} · {{ p.lub_number|lub if p.lub_number else '—' }}</div>
+                            </div>
+                            <a class="btn btn-sm btn-outline-secondary" href="/traceability?query={{ (p.artwork_number or context.query)|urlencode }}&plan_id={{ p.id }}">Otwórz</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="section-empty">Brak innych zleceń pod tym artwork.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
 
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-info text-white">
@@ -98,19 +313,50 @@
                 {% for event in context.events %}
                 <li class="list-group-item">
                     <strong>{{ event.event_type }}</strong> · {{ event.actor_user }} · {{ event.created_at }}
+                    {% if event.plan_id %}<span class="badge bg-light text-dark ms-1">plan #{{ event.plan_id }}</span>{% endif %}
                     {% if event.payload %}<div class="small text-muted">{{ event.payload }}</div>{% endif %}
                 </li>
                 {% endfor %}
             </ul>
             {% else %}
-            <p class="text-muted mb-0">Brak zdarzeń w systemie dla tego zlecenia.</p>
+            <p class="section-empty">Brak zdarzeń dla tego zakresu.</p>
             {% endif %}
         </div>
     </div>
 
-    <div class="row g-4">
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-clipboard-list"></i> Dziennik produkcji</h5>
+        </div>
+        <div class="card-body">
+            {% if context.production_log %}
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr><th>Czas</th><th>Operacja</th><th>Maszyna</th><th>Opis</th><th>Użytkownik</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for row in context.production_log %}
+                        <tr>
+                            <td><small>{{ row.created_at }}</small></td>
+                            <td>{{ row.operation_type }}</td>
+                            <td>{{ row.machine or '—' }}</td>
+                            <td>{{ row.description }}</td>
+                            <td>{{ row.username or row.user or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="section-empty">Brak wpisów dziennika produkcji.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
         <div class="col-lg-4">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm h-100">
                 <div class="card-header bg-secondary text-white">
                     <h5 class="mb-0"><i class="fas fa-print"></i> Raporty produkcji</h5>
                 </div>
@@ -118,39 +364,48 @@
                     {% if context.reports %}
                     {% for report in context.reports %}
                     <div class="border rounded p-2 mb-2">
-                        <strong>{{ report.job_number }}</strong><br>
-                        <small>OK: {{ report.ok_quantity }} · NOK: {{ report.nok_quantity }}</small>
+                        <strong>{{ report.job_number }}</strong>
+                        {% if report.plan_id %}<small class="text-muted"> · plan #{{ report.plan_id }}</small>{% endif %}
+                        <div class="small">OK {{ report.ok_quantity }} · NOK {{ report.nok_quantity }} · qty {{ report.quantity }}</div>
+                        {% if report.notes %}<div class="small text-muted">{{ report.notes }}</div>{% endif %}
                     </div>
                     {% endfor %}
                     {% else %}
-                    <p class="text-muted mb-0">Brak raportów produkcji.</p>
+                    <p class="section-empty">Brak raportów produkcji.</p>
                     {% endif %}
                 </div>
             </div>
         </div>
-
         <div class="col-lg-4">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm h-100">
                 <div class="card-header bg-warning text-dark">
-                    <h5 class="mb-0"><i class="fas fa-check-double"></i> Raporty zadruku</h5>
+                    <h5 class="mb-0"><i class="fas fa-check-double"></i> Kontrola zadruku</h5>
                 </div>
                 <div class="card-body">
                     {% if context.print_reports %}
                     {% for report in context.print_reports %}
                     <div class="border rounded p-2 mb-2">
-                        <strong>{{ report.job_number }}</strong><br>
-                        <small>Status: {{ report.status }} · {{ report.notes or '—' }}</small>
+                        <strong>
+                            {% if report.roll_no %}Rolka {{ report.roll_no }} · {% endif %}
+                            {{ report.status }}
+                        </strong>
+                        <div class="small">
+                            {{ report.roll_meters or 0 }} m · {{ report.roll_pieces or 0 }} szt.
+                            · wymiary {{ report.dimensions_match or '—' }}
+                            · kolory {{ report.colors_match or '—' }}
+                            · kody {{ report.barcode_grade or '—' }}
+                        </div>
+                        {% if report.notes %}<div class="small text-muted">{{ report.notes }}</div>{% endif %}
                     </div>
                     {% endfor %}
                     {% else %}
-                    <p class="text-muted mb-0">Brak raportów zadruku.</p>
+                    <p class="section-empty">Brak raportów kontroli zadruku.</p>
                     {% endif %}
                 </div>
             </div>
         </div>
-
         <div class="col-lg-4">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm h-100">
                 <div class="card-header bg-dark text-white">
                     <h5 class="mb-0"><i class="fas fa-wind"></i> Raporty przewijania</h5>
                 </div>
@@ -158,19 +413,48 @@
                     {% if context.winding_reports %}
                     {% for report in context.winding_reports %}
                     <div class="border rounded p-2 mb-2">
-                        <strong>{{ report.order_number }}</strong><br>
-                        <small>OK: {{ report.ok_meters }} m · NOK: {{ report.nok_meters }} m</small>
+                        <strong>{{ report.order_number }}</strong>
+                        <div class="small">OK {{ report.ok_meters }} m · NOK {{ report.nok_meters }} m · cut {{ report.cut_meters }} m</div>
                     </div>
                     {% endfor %}
                     {% else %}
-                    <p class="text-muted mb-0">Brak raportów przewijania.</p>
+                    <p class="section-empty">Brak raportów przewijania.</p>
                     {% endif %}
                 </div>
             </div>
         </div>
     </div>
-    {% else %}
-    <div class="alert alert-secondary">Brak danych dla podanego zapytania.</div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-triangle-exclamation"></i> Problemy / issues</h5>
+        </div>
+        <div class="card-body">
+            {% if context.issues %}
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr><th>Zlecenie</th><th>Kategoria</th><th>Status</th><th>Notatka</th><th>Rola</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for issue in context.issues %}
+                        <tr>
+                            <td>{{ issue.job_number or '—' }}</td>
+                            <td>{{ issue.category_label or '—' }}</td>
+                            <td>{{ issue.status or '—' }}</td>
+                            <td>{{ issue.short_note or '—' }}</td>
+                            <td>{{ issue.target_role or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="section-empty">Brak zgłoszonych problemów dla tego zakresu.</p>
+            {% endif %}
+        </div>
+    </div>
+
     {% endif %}
 </div>
 </body>
