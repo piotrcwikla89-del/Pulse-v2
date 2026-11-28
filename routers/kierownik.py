@@ -1,20 +1,22 @@
 """
 Router: panel kierownika — raporty, statystyki, dziennik zmian.
 """
-from collections import defaultdict
-
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import RedirectResponse, Response
 from starlette.requests import Request
 
 from dependencies import get_db, require_manager_or_admin
-from datetime import datetime, timedelta
-
 from helpers import (
     PRODUCTION_MACHINES,
     WINDING_MACHINES,
-    _parse_shift_time,
     normalize_shift_label,
     render_template,
+)
+from services.kierownik_reports import (
+    build_daily_packages,
+    build_month_history,
+    build_stats,
+    render_shift_summary_pdf,
 )
 from time_utils import local_day_bounds_utc, local_today, utc_threshold_db_string
 
@@ -159,81 +161,35 @@ def kierownik(request: Request, user=Depends(require_manager_or_admin), conn=Dep
 
 @router.get("/raporty")
 def kierownik_raporty_hub(request: Request, user=Depends(require_manager_or_admin)):
-    return render_template("kierownik_raporty.html", {
-        "user": {"username": user["username"], "role": user["role"]},
-    })
+    return RedirectResponse("/kierownik/raporty-dzienne", status_code=303)
 
 
-@router.get("/statystyki")
-def kierownik_statystyki_hub(request: Request, user=Depends(require_manager_or_admin)):
-    return render_template("kierownik_statystyki_hub.html", {
-        "user": {"username": user["username"], "role": user["role"]},
-    })
-
-
-@router.get("/rejestr-raportow")
-def kierownik_rejestr_raportow(
+@router.get("/raporty-dzienne")
+def kierownik_raporty_dzienne(
     request: Request,
     user=Depends(require_manager_or_admin),
     date_q: str = Query("", alias="date"),
+    zmiana: str = Query(""),
     conn=Depends(get_db),
 ):
     if not date_q:
         date_q = local_today().strftime("%Y-%m-%d")
+    shift = normalize_shift_label(zmiana) if zmiana else None
+    if shift not in ("dzien", "noc"):
+        shift = None
     cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM print_control_reports WHERE date=? ORDER BY machine, created_at DESC",
-        (date_q,),
-    )
-    print_reports = cur.fetchall()
-    cur.execute(
-        "SELECT * FROM production_reports WHERE date=? ORDER BY machine, created_at DESC",
-        (date_q,),
-    )
-    production_reports = [dict(row) for row in cur.fetchall()]
-    cur.execute(
-        "SELECT * FROM winding_reports WHERE date=? ORDER BY machine, created_at DESC",
-        (date_q,),
-    )
-    winding_reports = [dict(row) for row in cur.fetchall()]
-    issues_by_report = defaultdict(list)
-    if production_reports:
-        placeholders = ", ".join(["?"] * len(production_reports))
-        params = [report["id"] for report in production_reports]
-        cur.execute(
-            f"""
-            SELECT pri.production_report_id, pc.label, pc.target_role, pri.short_note, pri.status,
-                   pri.resolved_by, pri.resolved_at, pri.resolution_note
-            FROM production_report_issues pri
-            JOIN problem_categories pc ON pc.id = pri.problem_category_id
-            WHERE pri.production_report_id IN ({placeholders})
-            ORDER BY pri.id
-            """,
-            params,
-        )
-        for row in cur.fetchall():
-            issues_by_report[row["production_report_id"]].append({
-                "label": row["label"],
-                "target_role": row["target_role"],
-                "short_note": row["short_note"],
-                "status": row["status"],
-                "resolved_by": row["resolved_by"],
-                "resolved_at": row["resolved_at"],
-                "resolution_note": row["resolution_note"],
-            })
-    for report in production_reports:
-        report["issues"] = issues_by_report.get(report["id"], [])
-    return render_template("kierownik_rejestr_raportow.html", {
+    payload = build_daily_packages(cur, date_q, shift=shift)
+    return render_template("kierownik_raporty_dzienne.html", {
         "user": {"username": user["username"], "role": user["role"]},
-        "date_q": date_q,
-        "print_reports": print_reports,
-        "production_reports": production_reports,
-        "winding_reports": winding_reports,
+        "date_q": payload["date_q"],
+        "zmiana": shift or "",
+        "packages": payload["packages"],
+        "totals": payload["totals"],
     })
 
 
-@router.get("/raport-zmiany")
-def kierownik_raport_zmiany(
+@router.get("/raporty-dzienne/pdf")
+def kierownik_raporty_dzienne_pdf(
     request: Request,
     user=Depends(require_manager_or_admin),
     date_q: str = Query("", alias="date"),
@@ -242,75 +198,101 @@ def kierownik_raport_zmiany(
 ):
     if not date_q:
         date_q = local_today().strftime("%Y-%m-%d")
-    zm = normalize_shift_label(zmiana)
+    shift = normalize_shift_label(zmiana) if zmiana else "dzien"
+    if shift not in ("dzien", "noc"):
+        shift = "dzien"
     cur = conn.cursor()
-    cur.execute("SELECT * FROM print_control_reports WHERE date=? ORDER BY machine, created_at", (date_q,))
-    print_all = cur.fetchall()
-    cur.execute("SELECT * FROM production_reports WHERE date=?", (date_q,))
-    prod_all = [r for r in cur.fetchall() if normalize_shift_label(r["shift"]) == zm]
-    total_qty = sum(int(r["quantity"] or 0) for r in prod_all)
-    total_ok = sum(int(r["ok_quantity"] or 0) for r in prod_all)
-    total_nok = sum(int(r["nok_quantity"] or 0) for r in prod_all)
-    zadruk_ok = sum(1 for r in print_all if (r["status"] or "").upper() == "OK")
-    zadruk_nok = len(print_all) - zadruk_ok
-    by_machine = {}
-    for r in prod_all:
-        m = r["machine"]
-        if m not in by_machine:
-            by_machine[m] = {"qty": 0, "ok": 0, "nok": 0}
-        by_machine[m]["qty"] += int(r["quantity"] or 0)
-        by_machine[m]["ok"] += int(r["ok_quantity"] or 0)
-        by_machine[m]["nok"] += int(r["nok_quantity"] or 0)
-    return render_template("kierownik_raport_zmiany.html", {
+    payload = build_daily_packages(cur, date_q, shift=shift)
+    pdf_bytes = render_shift_summary_pdf(payload, generated_by=user["username"])
+    filename = f"raport_zmiany_{date_q}_{shift}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/historia-raportow")
+def kierownik_historia_raportow(
+    request: Request,
+    user=Depends(require_manager_or_admin),
+    year: int | None = Query(None),
+    month: int | None = Query(None),
+    conn=Depends(get_db),
+):
+    today = local_today()
+    year = int(year or today.year)
+    month = int(month or today.month)
+    if month < 1 or month > 12:
+        month = today.month
+    cur = conn.cursor()
+    history = build_month_history(cur, year, month)
+    return render_template("kierownik_historia_raportow.html", {
         "user": {"username": user["username"], "role": user["role"]},
-        "date_q": date_q,
-        "zmiana": zm,
-        "print_all": print_all,
-        "prod_filtered": prod_all,
-        "total_qty": total_qty,
-        "total_ok": total_ok,
-        "total_nok": total_nok,
-        "zadruk_ok": zadruk_ok,
-        "zadruk_nok": zadruk_nok,
-        "by_machine": by_machine,
+        "year": history["year"],
+        "month": history["month"],
+        "month_label": history["month_label"],
+        "days": history["days"],
+        "active_days": history["active_days"],
+        "totals": history["totals"],
     })
+
+
+@router.get("/statystyki")
+def kierownik_statystyki(
+    request: Request,
+    user=Depends(require_manager_or_admin),
+    tryb: str = Query("daily"),
+    date_q: str = Query("", alias="date"),
+    year: int | None = Query(None),
+    month: int | None = Query(None),
+    conn=Depends(get_db),
+):
+    mode = "monthly" if (tryb or "").lower() in ("monthly", "miesiac", "miesiąc", "month") else "daily"
+    if mode == "daily" and not date_q:
+        date_q = local_today().strftime("%Y-%m-%d")
+    cur = conn.cursor()
+    stats = build_stats(cur, mode=mode, date_q=date_q or None, year=year, month=month)
+    return render_template("kierownik_statystyki.html", {
+        "user": {"username": user["username"], "role": user["role"]},
+        "mode": stats["mode"],
+        "period_label": stats["period_label"],
+        "date_q": stats["date_q"] or date_q,
+        "year": stats["year"],
+        "month": stats["month"],
+        "shifts": stats["shifts"],
+        "days": stats["days"],
+        "totals": stats["totals"],
+    })
+
+
+@router.get("/rejestr-raportow")
+def kierownik_rejestr_raportow(
+    request: Request,
+    user=Depends(require_manager_or_admin),
+    date_q: str = Query("", alias="date"),
+):
+    if not date_q:
+        date_q = local_today().strftime("%Y-%m-%d")
+    return RedirectResponse(f"/kierownik/raporty-dzienne?date={date_q}", status_code=303)
+
+
+@router.get("/raport-zmiany")
+def kierownik_raport_zmiany(
+    request: Request,
+    user=Depends(require_manager_or_admin),
+    date_q: str = Query("", alias="date"),
+    zmiana: str = Query("dzien"),
+):
+    if not date_q:
+        date_q = local_today().strftime("%Y-%m-%d")
+    zm = normalize_shift_label(zmiana)
+    return RedirectResponse(f"/kierownik/raporty-dzienne?date={date_q}&zmiana={zm}", status_code=303)
 
 
 @router.get("/raport-dziennie")
-def kierownik_raport_dziennie(request: Request, user=Depends(require_manager_or_admin), conn=Depends(get_db)):
-    cur = conn.cursor()
-    start_utc, end_utc = local_day_bounds_utc()
-    cur.execute("""
-        SELECT machine, SUM(quantity) as total_qty, SUM(ok_quantity) as ok_qty, SUM(nok_quantity) as nok_qty
-        FROM production_reports
-        WHERE created_at >= ? AND created_at < ?
-        GROUP BY machine
-    """, (start_utc, end_utc))
-    production = cur.fetchall()
-    return render_template("kierownik_raport_dziennie.html", {
-        "production": production,
-        "user": {"username": user["username"], "role": user["role"]},
-    })
-
-
-def _empty_shift_bucket():
-    return {
-        "qty": 0,
-        "ok": 0,
-        "nok": 0,
-        "efficiency": 0.0,
-        "winding_ok_m": 0.0,
-        "winding_nok_m": 0.0,
-        "print_ok": 0,
-        "print_nok": 0,
-        "by_machine": {},
-    }
-
-
-def _finalize_shift_bucket(bucket: dict) -> dict:
-    qty = bucket["qty"]
-    bucket["efficiency"] = round(bucket["ok"] * 100 / qty, 1) if qty else 0.0
-    return bucket
+def kierownik_raport_dziennie(request: Request, user=Depends(require_manager_or_admin)):
+    return RedirectResponse("/kierownik/raporty-dzienne", status_code=303)
 
 
 @router.get("/statystyki-zmian")
@@ -318,164 +300,15 @@ def kierownik_statystyki_zmian(
     request: Request,
     user=Depends(require_manager_or_admin),
     date_q: str = Query("", alias="date"),
-    conn=Depends(get_db),
 ):
     if not date_q:
         date_q = local_today().strftime("%Y-%m-%d")
-    cur = conn.cursor()
-
-    shifts = {
-        "dzien": {
-            **_empty_shift_bucket(),
-            "key": "dzien",
-            "label": "Dzień",
-            "hours": "6:00 – 18:00",
-        },
-        "noc": {
-            **_empty_shift_bucket(),
-            "key": "noc",
-            "label": "Noc",
-            "hours": "18:00 – 6:00",
-        },
-    }
-
-    cur.execute(
-        """
-        SELECT machine, shift,
-               COALESCE(quantity, 0) AS quantity,
-               COALESCE(ok_quantity, 0) AS ok_quantity,
-               COALESCE(nok_quantity, 0) AS nok_quantity
-        FROM production_reports
-        WHERE date=?
-        """,
-        (date_q,),
-    )
-    for row in cur.fetchall():
-        key = normalize_shift_label(row["shift"])
-        if key not in shifts:
-            continue
-        bucket = shifts[key]
-        qty = int(row["quantity"] or 0)
-        ok = int(row["ok_quantity"] or 0)
-        nok = int(row["nok_quantity"] or 0)
-        bucket["qty"] += qty
-        bucket["ok"] += ok
-        bucket["nok"] += nok
-        machine = row["machine"] or "?"
-        if machine not in bucket["by_machine"]:
-            bucket["by_machine"][machine] = {"qty": 0, "ok": 0, "nok": 0}
-        bucket["by_machine"][machine]["qty"] += qty
-        bucket["by_machine"][machine]["ok"] += ok
-        bucket["by_machine"][machine]["nok"] += nok
-
-    cur.execute(
-        """
-        SELECT machine, shift,
-               COALESCE(ok_meters, 0) AS ok_meters,
-               COALESCE(nok_meters, 0) AS nok_meters
-        FROM winding_reports
-        WHERE date=?
-        """,
-        (date_q,),
-    )
-    for row in cur.fetchall():
-        key = normalize_shift_label(row["shift"])
-        if key not in shifts:
-            continue
-        bucket = shifts[key]
-        ok_m = float(row["ok_meters"] or 0)
-        nok_m = float(row["nok_meters"] or 0)
-        bucket["winding_ok_m"] += ok_m
-        bucket["winding_nok_m"] += nok_m
-        machine = row["machine"] or "?"
-        if machine not in bucket["by_machine"]:
-            bucket["by_machine"][machine] = {"qty": 0, "ok": 0, "nok": 0}
-        # metry pokazujemy osobno; qty zostaje dla druku
-
-    # print_control_reports nie ma kolumny shift — przypisujemy po godzinie (6–18 / 18–6)
-    try:
-        ref_day = datetime.strptime(date_q, "%Y-%m-%d").date()
-    except ValueError:
-        ref_day = local_today()
-        date_q = ref_day.strftime("%Y-%m-%d")
-    next_day = (ref_day + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    cur.execute(
-        """
-        SELECT date, time, status FROM print_control_reports
-        WHERE date=? OR date=?
-        """,
-        (date_q, next_day),
-    )
-    for row in cur.fetchall():
-        time_parts = _parse_shift_time(row["time"])
-        hour = time_parts[0] if time_parts else 12
-        row_date = str(row["date"])[:10]
-        if row_date == date_q and 6 <= hour < 18:
-            key = "dzien"
-        elif row_date == date_q and hour >= 18:
-            key = "noc"
-        elif row_date == next_day and hour < 6:
-            key = "noc"
-        else:
-            continue
-        if (row["status"] or "").upper() == "OK":
-            shifts[key]["print_ok"] += 1
-        else:
-            shifts[key]["print_nok"] += 1
-
-    day_shift = _finalize_shift_bucket(shifts["dzien"])
-    night_shift = _finalize_shift_bucket(shifts["noc"])
-    total_qty = day_shift["qty"] + night_shift["qty"]
-    total_ok = day_shift["ok"] + night_shift["ok"]
-    total_nok = day_shift["nok"] + night_shift["nok"]
-    day_total = {
-        "qty": total_qty,
-        "ok": total_ok,
-        "nok": total_nok,
-        "efficiency": round(total_ok * 100 / total_qty, 1) if total_qty else 0.0,
-        "winding_ok_m": day_shift["winding_ok_m"] + night_shift["winding_ok_m"],
-        "winding_nok_m": day_shift["winding_nok_m"] + night_shift["winding_nok_m"],
-        "print_ok": day_shift["print_ok"] + night_shift["print_ok"],
-        "print_nok": day_shift["print_nok"] + night_shift["print_nok"],
-    }
-
-    return render_template("kierownik_statystyki.html", {
-        "user": {"username": user["username"], "role": user["role"]},
-        "date_q": date_q,
-        "day_shift": day_shift,
-        "night_shift": night_shift,
-        "day_total": day_total,
-    })
+    return RedirectResponse(f"/kierownik/statystyki?tryb=daily&date={date_q}", status_code=303)
 
 
 @router.get("/raport-jakosci")
-def kierownik_raport_jakosci(request: Request, user=Depends(require_manager_or_admin), conn=Depends(get_db)):
-    cur = conn.cursor()
-    start_utc, end_utc = local_day_bounds_utc()
-    cur.execute("""
-        SELECT
-            machine,
-            COUNT(*) as total_reports,
-            SUM(CASE WHEN status='OK' THEN 1 ELSE 0 END) as ok_count,
-            SUM(CASE WHEN status='NOT_OK' THEN 1 ELSE 0 END) as not_ok_count,
-            ROUND(100.0 * SUM(CASE WHEN status='OK' THEN 1 ELSE 0 END) / COUNT(*), 2) as quality_score
-        FROM print_control_reports
-        WHERE created_at >= ? AND created_at < ?
-        GROUP BY machine
-    """, (start_utc, end_utc))
-    quality = cur.fetchall()
-    cur.execute("""
-        SELECT * FROM print_control_reports
-        WHERE created_at >= ? AND created_at < ?
-        ORDER BY machine, created_at DESC
-    """, (start_utc, end_utc))
-    reports = cur.fetchall()
-    return render_template("kierownik_raport_jakosci.html", {
-        "quality": quality,
-        "reports": reports,
-        "user": {"username": user["username"], "role": user["role"]},
-    })
+def kierownik_raport_jakosci(request: Request, user=Depends(require_manager_or_admin)):
+    return RedirectResponse("/kierownik/raporty-dzienne", status_code=303)
 
 
 @router.get("/dziennik-zmian")

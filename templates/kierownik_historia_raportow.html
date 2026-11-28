@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historia raportów — kierownik</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+</head>
+<body class="bg-light">
+<div class="container mt-4 mb-5">
+    <div class="page-toolbar">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-calendar-days"></i> Historia raportów</h1>
+            <p class="mb-0">Wykaz dni miesiąca {{ month_label }} — wejście w dzień otwiera pakiety raportów.</p>
+        </div>
+        <div class="toolbar-actions">
+            <a href="/kierownik" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> Panel</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm">Wyloguj</a>
+        </div>
+    </div>
+
+    <form method="get" action="/kierownik/historia-raportow" class="row g-2 align-items-end mb-4">
+        <div class="col-auto">
+            <label class="form-label small mb-0">Rok</label>
+            <input type="number" name="year" class="form-control" value="{{ year }}" min="2020" max="2100">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Miesiąc</label>
+            <select name="month" class="form-select">
+                {% for m in range(1, 13) %}
+                <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ '%02d'|format(m) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Pokaż miesiąc</button>
+        </div>
+    </form>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3"><div class="card p-3 text-center"><div class="fs-4 fw-bold">{{ totals.active_days }}</div><div class="small text-muted">Dni z raportami</div></div></div>
+        <div class="col-md-3"><div class="card p-3 text-center"><div class="fs-4 fw-bold">{{ totals.final_reports }}</div><div class="small text-muted">Raporty końcowe</div></div></div>
+        <div class="col-md-3"><div class="card p-3 text-center"><div class="fs-4 fw-bold">{{ totals.print_reports }}</div><div class="small text-muted">Kontrole zadruku</div></div></div>
+        <div class="col-md-3"><div class="card p-3 text-center"><div class="fs-4 fw-bold">{{ totals.ok }} / {{ totals.nok }}</div><div class="small text-muted">OK / NOK szt.</div></div></div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Dzień</th>
+                        <th>Pakiety (szac.)</th>
+                        <th>Raporty końcowe</th>
+                        <th>Kontrole zadruku</th>
+                        <th>OK</th>
+                        <th>NOK</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in days %}
+                    <tr class="{% if not d.final_reports and not d.print_reports %}table-light text-muted{% endif %}">
+                        <td><strong>{{ d.date }}</strong></td>
+                        <td>{{ d.packages_estimate }}</td>
+                        <td>{{ d.final_reports }}</td>
+                        <td>{{ d.print_reports }}</td>
+                        <td>{{ d.ok }}</td>
+                        <td>{{ d.nok }}</td>
+                        <td class="text-end">
+                            {% if d.final_reports or d.print_reports %}
+                            <a class="btn btn-sm btn-outline-primary" href="/kierownik/raporty-dzienne?date={{ d.date }}">Otwórz dzień</a>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

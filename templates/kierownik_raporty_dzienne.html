@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raporty dzienne — kierownik</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .pkg-card {
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            padding: 1rem 1.15rem;
+            margin-bottom: 1rem;
+        }
+        .pkg-card h3 { font-size: 1.05rem; font-weight: 700; margin: 0 0 .35rem; }
+        .pkg-meta { font-size: .88rem; color: #415a73; }
+        .stat-strip {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: .65rem;
+            margin-bottom: 1.25rem;
+        }
+        .stat-strip .cell {
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: .75rem .9rem;
+            text-align: center;
+        }
+        .stat-strip .val { font-size: 1.35rem; font-weight: 700; }
+        .stat-strip .lbl { font-size: .75rem; color: #6c757d; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container mt-4 mb-5">
+    <div class="page-toolbar">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-inbox"></i> Raporty dzienne</h1>
+            <p class="mb-0">Pakiety zleceń: raport końcowy + kontrole zadruku. Stąd generujesz PDF zbiorczy zmiany.</p>
+        </div>
+        <div class="toolbar-actions">
+            <a href="/kierownik" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> Panel</a>
+            <a href="/logout" class="btn btn-outline-danger btn-sm">Wyloguj</a>
+        </div>
+    </div>
+
+    <form method="get" action="/kierownik/raporty-dzienne" class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+            <label class="form-label small mb-0">Data</label>
+            <input type="date" name="date" class="form-control" value="{{ date_q }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Zmiana</label>
+            <select name="zmiana" class="form-select">
+                <option value="" {% if not zmiana %}selected{% endif %}>Cały dzień</option>
+                <option value="dzien" {% if zmiana == 'dzien' %}selected{% endif %}>Dzień 6:00–18:00</option>
+                <option value="noc" {% if zmiana == 'noc' %}selected{% endif %}>Noc 18:00–6:00</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Pokaż</button>
+        </div>
+        <div class="col-auto">
+            <a class="btn btn-success"
+               href="/kierownik/raporty-dzienne/pdf?date={{ date_q }}&zmiana={{ zmiana or 'dzien' }}">
+                <i class="fas fa-file-pdf"></i> PDF zbiorczy zmiany
+            </a>
+        </div>
+    </form>
+
+    <div class="stat-strip">
+        <div class="cell"><div class="val">{{ totals.packages }}</div><div class="lbl">Pakiety</div></div>
+        <div class="cell"><div class="val">{{ totals.final_reports }}</div><div class="lbl">Raporty końcowe</div></div>
+        <div class="cell"><div class="val">{{ totals.roll_count }}</div><div class="lbl">Kontrole zadruku</div></div>
+        <div class="cell"><div class="val">{{ totals.ok }}</div><div class="lbl">OK szt.</div></div>
+        <div class="cell"><div class="val">{{ totals.nok }}</div><div class="lbl">NOK szt.</div></div>
+        <div class="cell"><div class="val">{{ totals.efficiency }}%</div><div class="lbl">Wydajność</div></div>
+    </div>
+
+    {% if packages %}
+        {% for pkg in packages %}
+        <div class="pkg-card">
+            <div class="d-flex justify-content-between flex-wrap gap-2">
+                <div>
+                    <h3>{{ pkg.machine }} · {{ pkg.order_number }}</h3>
+                    <div class="pkg-meta">
+                        {{ pkg.order_name or 'Bez nazwy' }}
+                        · LUB {{ pkg.lub_number|lub if pkg.lub_number else '—' }}
+                        · artwork {{ pkg.artwork_number or '—' }}
+                        {% if pkg.plan_id %}· plan #{{ pkg.plan_id }}{% endif %}
+                    </div>
+                </div>
+                <div class="text-end pkg-meta">
+                    <div>Final: qty {{ pkg.qty }} · OK {{ pkg.ok }} · NOK {{ pkg.nok }}</div>
+                    <div>Zadruk: {{ pkg.roll_count }} rolek · {{ pkg.roll_meters }} m / {{ pkg.roll_pieces }} szt.</div>
+                </div>
+            </div>
+
+            <div class="row g-3 mt-2">
+                <div class="col-md-6">
+                    <div class="fw-semibold mb-1">Raporty końcowe</div>
+                    {% if pkg.production_reports %}
+                        {% for r in pkg.production_reports %}
+                        <div class="border rounded p-2 mb-2 small">
+                            <strong>{{ r.shift }}</strong> · {{ r.created_at|localdatetime if r.created_at else r.date }}
+                            <div>qty {{ r.quantity }} · OK {{ r.ok_quantity }} · NOK {{ r.nok_quantity }}</div>
+                            {% if r.notes %}<div class="text-muted">{{ r.notes }}</div>{% endif %}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted small">Brak raportu końcowego w tym zakresie.</div>
+                    {% endif %}
+                </div>
+                <div class="col-md-6">
+                    <div class="fw-semibold mb-1">Kontrola zadruku</div>
+                    {% if pkg.print_reports %}
+                        {% for r in pkg.print_reports %}
+                        <div class="border rounded p-2 mb-2 small">
+                            <strong>{% if r.roll_no %}Rolka {{ r.roll_no }} · {% endif %}{{ r.status }}</strong>
+                            · {{ r.time or '' }}
+                            <div>{{ r.roll_meters or 0 }} m · {{ r.roll_pieces or 0 }} szt. · wymiary {{ r.dimensions_match or '—' }} · kolory {{ r.colors_match or '—' }} · kody {{ r.barcode_grade or '—' }}</div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted small">Brak kontroli zadruku w tym zakresie.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-secondary">Brak pakietów raportów dla wybranej daty / zmiany.</div>
+    {% endif %}
+</div>
+</body>
+</html>
