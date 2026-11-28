@@ -13,6 +13,7 @@ from helpers import (
     log_domain_event,
     log_production_operation,
     normalize_shift_label,
+    plan_production_targets,
     render_template,
 )
 from time_utils import local_today
@@ -141,12 +142,38 @@ def przewijarka_job(
         (plan_id,),
     )
     reports = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        """
+        SELECT COALESCE(SUM(ok_meters), 0) AS ok_m,
+               COALESCE(SUM(nok_meters), 0) AS nok_m,
+               COALESCE(SUM(cut_meters), 0) AS cut_m,
+               COUNT(*) AS report_count
+        FROM winding_reports
+        WHERE plan_id=?
+        """,
+        (plan_id,),
+    )
+    actual_row = cur.fetchone()
+    planned = plan_production_targets(plan)
+    actual_ok_m = float(actual_row["ok_m"] or 0)
+    actual_nok_m = float(actual_row["nok_m"] or 0)
+    planned_meters = float(planned["meters"] or 0)
+    progress_pct = round(actual_ok_m * 100 / planned_meters, 1) if planned_meters else 0.0
+    production_actual = {
+        "ok_m": actual_ok_m,
+        "nok_m": actual_nok_m,
+        "cut_m": float(actual_row["cut_m"] or 0),
+        "report_count": int(actual_row["report_count"] or 0),
+        "progress_pct": progress_pct,
+    }
     active_job = plan["status"] == "in_progress"
     completed_job = plan["status"] == "completed"
     return render_template("przewijarka_job.html", {
         "machine": machine.upper(),
         "plan": dict(plan),
         "reports": reports,
+        "planned": planned,
+        "production_actual": production_actual,
         "active_job": active_job,
         "completed_job": completed_job,
         "user": {"username": user["username"], "role": user["role"]},

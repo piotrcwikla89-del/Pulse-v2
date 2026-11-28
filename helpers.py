@@ -57,6 +57,7 @@ def init_jinja_env() -> None:
             cache_size=0,
         )
         env.filters["localdatetime"] = format_local_datetime
+        env.filters["lub"] = format_lub_label
 
         def _tojson(value):
             return Markup(json.dumps(value, ensure_ascii=False))
@@ -271,6 +272,50 @@ def get_edit_password(cur) -> str:
 
 PRODUCTION_MACHINES = ("D6", "D8", "D10")
 WINDING_MACHINES = ("P1", "P2")
+
+
+def format_lub_label(lub_number) -> str:
+    """Jedna etykieta LUB — bez podwójnego prefiksu (LUB LUB4475 → LUB4475)."""
+    if lub_number is None:
+        return "brak"
+    text = str(lub_number).strip()
+    if not text:
+        return "brak"
+    if text.upper().startswith("LUB"):
+        return text
+    return f"LUB{text}" if text[:1].isdigit() else f"LUB {text}"
+
+
+def _coerce_qty(value):
+    if value is None or value == "":
+        return 0
+    if isinstance(value, (int, float)):
+        return value
+    raw = str(value).strip().replace(" ", "").replace(",", ".")
+    if not raw:
+        return 0
+    try:
+        num = float(raw)
+    except ValueError:
+        return 0
+    return int(num) if num.is_integer() else num
+
+
+def plan_production_targets(plan) -> dict:
+    """Planowane metry (T / meters) i sztuki (W / pieces) dla widoku zlecenia."""
+    def _get(key):
+        if plan is None:
+            return None
+        try:
+            return plan[key]
+        except Exception:
+            if isinstance(plan, dict):
+                return plan.get(key)
+            return None
+
+    meters = _coerce_qty(_get("raw_web_used") or _get("meters"))
+    pieces = _coerce_qty(_get("wbpr_qty") or _get("pieces"))
+    return {"meters": meters, "pieces": pieces}
 
 
 def normalize_shift_label(shift_val: str) -> str:

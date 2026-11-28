@@ -7,6 +7,53 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/static/app-modern.css">
+    <style>
+        .prod-compare {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.85rem;
+            margin-top: 1rem;
+        }
+        @media (max-width: 700px) { .prod-compare { grid-template-columns: 1fr; } }
+        .prod-box {
+            background: rgba(255,255,255,0.92);
+            border: 2px solid rgba(15, 63, 111, 0.18);
+            border-radius: 14px;
+            padding: 1rem 1.15rem;
+        }
+        .prod-box.actual {
+            border-color: rgba(25, 135, 84, 0.45);
+            background: linear-gradient(180deg, #f3fbf6, #ffffff);
+        }
+        .prod-box .eyebrow {
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #415a73;
+            margin-bottom: 0.35rem;
+        }
+        .prod-box .big {
+            font-size: clamp(1.7rem, 3.5vw, 2.35rem);
+            font-weight: 800;
+            line-height: 1.1;
+            color: #0f3f6f;
+        }
+        .prod-box .sub { font-size: 1.15rem; font-weight: 700; margin-top: 0.15rem; }
+        .prod-box .meta { margin-top: 0.45rem; font-size: 0.9rem; color: #415a73; }
+        .prod-progress {
+            margin-top: 0.85rem;
+            height: 0.7rem;
+            border-radius: 999px;
+            background: rgba(15, 63, 111, 0.12);
+            overflow: hidden;
+        }
+        .prod-progress > span {
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, #198754, #20c997);
+        }
+    </style>
 </head>
 <body class="bg-light">
 <div class="container mt-4 mb-5">
@@ -37,23 +84,49 @@
     {% endif %}
 
     <section class="hero-panel mb-4">
-        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
             <div>
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     <span class="status-pill">{% if active_job %}Aktywne zlecenie{% elif completed_job %}Zakończone{% else %}Gotowe do startu{% endif %}</span>
-                    <span class="status-pill">LUB {{ plan.lub_number or 'brak' }}</span>
+                    <span class="status-pill">{{ plan.lub_number|lub }}</span>
                 </div>
                 <h2 class="mb-2">{{ plan.order_name or 'Bez nazwy zlecenia' }}</h2>
                 <p class="mb-0">Artwork {{ plan.artwork_number or '—' }} · Laminat {{ plan.laminate or '—' }}</p>
             </div>
-            <div class="text-end">
-                <div class="small text-uppercase fw-semibold opacity-75 mb-1">Plan przewijania</div>
-                <div class="fs-4 fw-bold">{{ plan.meters or 0 }} m</div>
-                <div>{{ plan.pieces or 0 }} szt.</div>
+            <div class="summary-card" style="min-width: 10rem;">
+                <small>Postęp (OK m / plan m)</small>
+                <strong>{{ production_actual.progress_pct }}%</strong>
             </div>
         </div>
 
-        <div class="summary-grid">
+        <div class="prod-compare">
+            <div class="prod-box">
+                <div class="eyebrow">Planowane przewijanie</div>
+                <div class="big">{{ planned.meters }} m</div>
+                <div class="sub">{{ planned.pieces }} szt.</div>
+                <div class="meta">Cel z planu (T / W)</div>
+            </div>
+            <div class="prod-box actual">
+                <div class="eyebrow">Rzeczywiste przewijanie</div>
+                <div class="big">{{ '%.0f'|format(production_actual.ok_m) }} m OK</div>
+                <div class="sub">
+                    NOK {{ '%.0f'|format(production_actual.nok_m) }} m
+                    · cięcie {{ '%.0f'|format(production_actual.cut_m) }} m
+                </div>
+                <div class="meta">
+                    {% if production_actual.report_count %}
+                    Z {{ production_actual.report_count }} raport(ów) przewijania
+                    {% else %}
+                    Brak raportów przewijania dla tego zlecenia
+                    {% endif %}
+                </div>
+                <div class="prod-progress" title="{{ production_actual.progress_pct }}%">
+                    <span style="width: {% if production_actual.progress_pct > 100 %}100{% else %}{{ production_actual.progress_pct }}{% endif %}%;"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-grid mt-4">
             <div class="summary-card">
                 <small>Numer zlecenia</small>
                 <strong>{{ plan.order_number }}</strong>

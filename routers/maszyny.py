@@ -23,6 +23,7 @@ from helpers import (
     log_domain_event,
     log_production_operation,
     normalize_shift_label,
+    plan_production_targets,
     render_template,
     resolve_active_shift,
     resolve_plan_id_for_job,
@@ -941,6 +942,31 @@ def maszyna_job(
         (plan_id,),
     )
     production_report = cur.fetchone()
+    cur.execute(
+        """
+        SELECT COALESCE(SUM(quantity), 0) AS qty,
+               COALESCE(SUM(ok_quantity), 0) AS ok_qty,
+               COALESCE(SUM(nok_quantity), 0) AS nok_qty,
+               COUNT(*) AS report_count
+        FROM production_reports
+        WHERE plan_id=?
+        """,
+        (plan_id,),
+    )
+    actual_row = cur.fetchone()
+    planned = plan_production_targets(plan)
+    actual_qty = int(actual_row["qty"] or 0)
+    actual_ok = int(actual_row["ok_qty"] or 0)
+    actual_nok = int(actual_row["nok_qty"] or 0)
+    planned_pieces = float(planned["pieces"] or 0)
+    progress_pct = round(actual_ok * 100 / planned_pieces, 1) if planned_pieces else 0.0
+    production_actual = {
+        "qty": actual_qty,
+        "ok": actual_ok,
+        "nok": actual_nok,
+        "report_count": int(actual_row["report_count"] or 0),
+        "progress_pct": progress_pct,
+    }
     prep_ready = plan["farby_prep_status"] == "ready" and plan["polimery_prep_status"] == "ready"
     active_job = plan["status"] == "in_progress"
     completed_job = plan["status"] == "completed"
@@ -955,6 +981,8 @@ def maszyna_job(
         "problem_categories": problem_categories,
         "print_reports": print_reports,
         "production_report": dict(production_report) if production_report else None,
+        "planned": planned,
+        "production_actual": production_actual,
         "prep_ready": prep_ready,
         "active_job": active_job,
         "completed_job": completed_job,
